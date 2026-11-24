@@ -10,6 +10,7 @@ export default function Activity() {
   const [type, setType] = useState("all");
   const [open, setOpen] = useState<number | null>(null);
   useEffect(() => { if (version) reload(); }, [version]); // eslint-disable-line
+  useEffect(() => { const t = new URLSearchParams(window.location.search).get("type"); if (t) setType(t); }, []);
 
   const types = useMemo(() => [...new Set((data || []).map((e) => e.event_type))].sort(), [data]);
   const rows = (data || []).filter((e) => type === "all" || e.event_type === type);

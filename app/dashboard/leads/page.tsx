@@ -11,12 +11,24 @@ export default function Leads() {
   const { data, error, loading, reload } = useApi<any[]>("/api/leads");
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("all");
+  const [extra, setExtra] = useState<Record<string, string>>({});
   useEffect(() => { if (version) reload(); }, [version]); // eslint-disable-line
-  useEffect(() => { const s = new URLSearchParams(window.location.search).get("status"); if (s) setStatus(s); }, []);
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search);
+    if (p.get("status")) setStatus(p.get("status")!);
+    const e: Record<string, string> = {};
+    ["recent", "unassigned", "source", "industry", "priority"].forEach((k) => { if (p.get(k)) e[k] = p.get(k)!; });
+    setExtra(e);
+  }, []);
 
   const rows = useMemo(() => (data || []).filter((l) =>
     (status === "all" || (l.status || "new") === status) &&
-    [l.contact_name, l.email, l.company, l.lead_reference, l.industry].join(" ").toLowerCase().includes(search.toLowerCase())), [data, search, status]);
+    (!extra.recent || Date.now() - new Date(l.created_at).getTime() < Number(extra.recent) * 86400000) &&
+    (!extra.unassigned || !l.assigned_owner_id) &&
+    (!extra.source || (l.source || "unknown") === extra.source) &&
+    (!extra.industry || (l.industry || "") === extra.industry) &&
+    (!extra.priority || (l.priority || "") === extra.priority) &&
+    [l.contact_name, l.email, l.company, l.lead_reference, l.industry].join(" ").toLowerCase().includes(search.toLowerCase())), [data, search, status, extra]);
 
   return (
     <>
@@ -31,6 +43,13 @@ export default function Leads() {
             {["all", ...STATUSES].map((s) => <button key={s} onClick={() => setStatus(s)} className={`chip transition ${status === s ? "bg-onyx text-chalk" : "bg-chalk-2 hover:bg-chalk-3"}`}>{s}</button>)}
           </div>
         </div>
+        {Object.keys(extra).length > 0 && (
+          <div className="mb-4 flex flex-wrap items-center gap-2 text-xs">
+            <span className="text-onyx/50">Filtered by:</span>
+            {Object.entries(extra).map(([k, v]) => <span key={k} className="chip bg-tangerine-soft text-tangerine-dark">{k === "recent" ? `last ${v} days` : k === "unassigned" ? "no owner" : `${k}: ${v.replace(/_/g, " ")}`}</span>)}
+            <button className="font-semibold underline" onClick={() => { setExtra({}); window.history.replaceState(null, "", "/dashboard/leads"); }}>Clear</button>
+          </div>
+        )}
         {error && <Alert>{error}</Alert>}
         {loading && !data ? <div className="grid place-items-center py-16"><Spinner className="h-6 w-6" /></div> : (
           <div className="overflow-x-auto">

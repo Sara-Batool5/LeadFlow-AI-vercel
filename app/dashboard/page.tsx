@@ -156,14 +156,14 @@ export default function Overview() {
   const latest = (leads.data || []).slice(0, 10);
   const age = (d: any) => { const n = Math.max(0, Math.round((Date.now() - new Date(d).getTime()) / 86400000)); return n === 0 ? "today" : `${n}d`; };
 
-  const insights: [string, string, string | number][] = s ? [
-    ["trend", `${s.last7} new lead${s.last7 === 1 ? "" : "s"} arrived in the last 7 days.`, s.last7],
-    ["link", s.bySource[0] ? `${pretty(s.bySource[0].k)} is your top lead source (${Math.round((s.bySource[0].n / Math.max(s.total, 1)) * 100)}% of all leads).` : "No lead source data yet.", `${s.bySource[0]?.n ?? 0}`],
-    ["star", `${high} of ${s.qualified.n} AI assessments rated a lead high fit.`, s.qualified.n ? `${Math.round((high / s.qualified.n) * 100)}%` : "—"],
-    ["clock", `Average AI qualification score across ${s.qualified.n} assessments.`, s.qualified.avg],
-    ["user", `${s.unassigned} lead${s.unassigned === 1 ? " has" : "s have"} no sales owner yet.`, s.unassigned],
-    ["mail", `${s.drafts.pending} follow-up draft${s.drafts.pending === 1 ? " is" : "s are"} waiting for approval.`, s.drafts.pending],
-    ["building", s.topIndustry ? `${s.topIndustry.k} is your most common industry.` : "No industry data yet.", s.topIndustry?.n ?? 0],
+  const insights: [string, string, string | number, string][] = s ? [
+    ["trend", `${s.last7} new lead${s.last7 === 1 ? "" : "s"} arrived in the last 7 days.`, s.last7, "/dashboard/leads?recent=7"],
+    ["link", s.bySource[0] ? `${pretty(s.bySource[0].k)} is your top lead source (${Math.round((s.bySource[0].n / Math.max(s.total, 1)) * 100)}% of all leads).` : "No lead source data yet.", `${s.bySource[0]?.n ?? 0}`, s.bySource[0] ? `/dashboard/leads?source=${encodeURIComponent(s.bySource[0].k)}` : "/dashboard/leads"],
+    ["star", `${high} of ${s.qualified.n} AI assessments rated a lead high fit.`, s.qualified.n ? `${Math.round((high / s.qualified.n) * 100)}%` : "—", "/dashboard/leads?priority=high"],
+    ["clock", `Average AI qualification score across ${s.qualified.n} assessments.`, s.qualified.avg, "/dashboard/activity?type=ai_qualification_completed"],
+    ["user", `${s.unassigned} lead${s.unassigned === 1 ? " has" : "s have"} no sales owner yet.`, s.unassigned, "/dashboard/leads?unassigned=1"],
+    ["mail", `${s.drafts.pending} follow-up draft${s.drafts.pending === 1 ? " is" : "s are"} waiting for approval.`, s.drafts.pending, "/dashboard/review"],
+    ["building", s.topIndustry ? `${s.topIndustry.k} is your most common industry.` : "No industry data yet.", s.topIndustry?.n ?? 0, s.topIndustry ? `/dashboard/leads?industry=${encodeURIComponent(s.topIndustry.k)}` : "/dashboard/leads"],
   ] : [];
 
   return (
@@ -242,11 +242,14 @@ export default function Overview() {
               <Link href="/dashboard/activity" className="btn btn-sm bg-chalk text-onyx hover:bg-tangerine">View all →</Link>
             </div>
             <ul className="space-y-2.5">
-              {insights.map(([ic, text, val], i) => (
-                <li key={i} className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/10 px-4 py-3 transition duration-200 hover:translate-x-1 hover:bg-white/20">
-                  <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-white/15"><Ico k={ic} /></span>
-                  <span className="flex-1 text-[13px] leading-snug text-chalk/90">{text}</span>
-                  <b className="shrink-0 border-b-2 border-tangerine text-lg font-medium leading-tight">{val}</b>
+              {insights.map(([ic, text, val, href], i) => (
+                <li key={i}>
+                  <Link href={href} className="group flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[.07] px-4 py-3 transition duration-200 hover:translate-x-1 hover:border-tangerine/60 hover:bg-white/[.14]">
+                    <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-white/15 transition group-hover:bg-tangerine group-hover:text-onyx"><Ico k={ic} /></span>
+                    <span className="flex-1 text-[13px] leading-snug text-chalk/90">{text}</span>
+                    <b className="shrink-0 border-b-2 border-tangerine text-lg font-medium leading-tight">{val}</b>
+                    <span className="text-chalk/40 transition group-hover:translate-x-0.5 group-hover:text-tangerine">→</span>
+                  </Link>
                 </li>
               ))}
               {!s && <Spinner className="text-chalk" />}
