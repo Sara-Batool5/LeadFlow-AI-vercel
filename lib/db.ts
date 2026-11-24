@@ -23,7 +23,7 @@ const clean = (v: any) => (v === null || v === undefined ? "" : String(v).trim()
 const norm = (v: any) => clean(v).toLowerCase().replace(/\s+/g, " ");
 const normSite = (v: any) => clean(v).toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0].trim();
 
-export const STATUSES = ["new", "contacted", "qualified", "in progress", "closed", "won", "lost", "disqualified"];
+export const STATUSES = ["new", "needs_review", "assigned", "contacted", "qualified", "in progress", "closed", "won", "lost", "disqualified"];
 
 export function normalizePriority(value: any) {
   const v = clean(value).toLowerCase();
@@ -277,19 +277,29 @@ export async function deleteDraft(id: number) {
 // ---------------------------------------------------------------------------
 // Dashboard statistics
 // ---------------------------------------------------------------------------
+const LATEST_Q = `(SELECT DISTINCT ON (lead_id) lead_id, category FROM qualification_results ORDER BY lead_id, created_at DESC)`;
+
 export async function stats() {
-  const [totals, byStatus, byPriority, bySource, daily, qual, drafts, byCategory] = await Promise.all([
+  const [totals, byStatus, byPriority, bySource, daily, qual, drafts, byCategory, sourceQualified, topIndustry] = await Promise.all([
     q(`SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE assigned_owner_id IS NULL)::int AS unassigned,
               COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '7 days')::int AS last7 FROM leads`),
     q("SELECT COALESCE(status,'new') AS k, COUNT(*)::int AS n FROM leads GROUP BY 1 ORDER BY n DESC"),
     q("SELECT COALESCE(priority,'unassessed') AS k, COUNT(*)::int AS n FROM leads GROUP BY 1"),
     q("SELECT COALESCE(NULLIF(source,''),'unknown') AS k, COUNT(*)::int AS n FROM leads GROUP BY 1 ORDER BY n DESC"),
-    q(`SELECT to_char(d::date,'YYYY-MM-DD') AS day, COALESCE(c.n,0)::int AS n
-       FROM generate_series(CURRENT_DATE - 29, CURRENT_DATE, '1 day') d
-       LEFT JOIN (SELECT created_at::date AS day, COUNT(*) AS n FROM leads GROUP BY 1) c ON c.day = d::date ORDER BY d`),
+    q(`SELECT to_char(d::date,'YYYY-MM-DD') AS day, COALESCE(c.n,0)::int AS n, COALESCE(qq.n,0)::int AS q
+       FROM generate_series(CURRENT_DATE - 89, CURRENT_DATE, '1 day') d
+       LEFT JOIN (SELECT created_at::date AS day, COUNT(*) AS n FROM leads GROUP BY 1) c ON c.day = d::date
+       LEFT JOIN (SELECT first_q::date AS day, COUNT(*) AS n
+                  FROM (SELECT lead_id, MIN(created_at) AS first_q FROM qualification_results WHERE category IN ('high_fit','medium_fit') GROUP BY lead_id) x
+                  GROUP BY 1) qq ON qq.day = d::date
+       ORDER BY d`),
     q("SELECT COUNT(*)::int AS n, COALESCE(ROUND(AVG(score)),0)::int AS avg FROM qualification_results"),
     q("SELECT COUNT(*) FILTER (WHERE draft_status='pending_review')::int AS pending, COUNT(*) FILTER (WHERE draft_status='approved')::int AS approved FROM email_drafts"),
-    q(`SELECT category AS k, COUNT(*)::int AS n FROM (SELECT DISTINCT ON (lead_id) lead_id, category FROM qualification_results ORDER BY lead_id, created_at DESC) t GROUP BY 1`),
+    q(`SELECT category AS k, COUNT(*)::int AS n FROM ${LATEST_Q} t GROUP BY 1`),
+    q(`SELECT COALESCE(NULLIF(l.source,''),'unknown') AS k, COUNT(*)::int AS n
+       FROM leads l JOIN ${LATEST_Q} t ON t.lead_id = l.id
+       WHERE t.category IN ('high_fit','medium_fit') GROUP BY 1 ORDER BY n DESC`),
+    q("SELECT industry AS k, COUNT(*)::int AS n FROM leads WHERE COALESCE(TRIM(industry),'') <> '' GROUP BY 1 ORDER BY n DESC LIMIT 1"),
   ]);
-  return { ...totals[0], byStatus, byPriority, bySource, daily, qualified: qual[0], drafts: drafts[0], byCategory };
+  return { ...totals[0], byStatus, byPriority, bySource, daily, qualified: qual[0], drafts: drafts[0], byCategory, sourceQualified, topIndustry: topIndustry[0] || null };
 }

@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, fmtDateTime } from "@/lib/client";
 import { Alert, Badge, Spinner } from "./ui";
 
-const STATUSES = ["new", "contacted", "qualified", "in progress", "closed", "won", "lost", "disqualified"];
+const STATUSES = ["new", "needs_review", "assigned", "contacted", "qualified", "in progress", "closed", "won", "lost", "disqualified"];
 const PURPOSES = ["Introductory follow-up after an inquiry", "Request missing information", "Propose a discovery call", "Re-engage a quiet lead"];
 const TONES = ["Professional and friendly", "Formal", "Warm and conversational", "Short and direct"];
 

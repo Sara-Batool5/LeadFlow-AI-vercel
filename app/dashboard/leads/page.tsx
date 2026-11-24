@@ -4,7 +4,7 @@ import { Alert, Badge, PageHeader, Spinner } from "@/components/ui";
 import { useShell } from "@/components/Shell";
 import { fmtDate, initials, useApi } from "@/lib/client";
 
-const STATUSES = ["new", "contacted", "qualified", "in progress", "closed", "won", "lost", "disqualified"];
+const STATUSES = ["new", "needs_review", "assigned", "contacted", "qualified", "in progress", "closed", "won", "lost", "disqualified"];
 
 export default function Leads() {
   const { openCreate, openImport, openLead, version } = useShell();
