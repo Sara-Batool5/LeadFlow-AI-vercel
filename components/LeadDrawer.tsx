@@ -67,7 +67,8 @@ export default function LeadDrawer({ id, onClose, onChange }: { id: number | nul
                 <div><label className="label">Status</label>
                   <select className="input" value={lead.status || "new"} onChange={(e) => act("status", () => api(`/api/leads/${id}`, { method: "PATCH", body: { status: e.target.value } }), "Status updated.")}>
                     {[...new Set([lead.status || "new", ...statuses])].map((s) => <option key={s}>{s}</option>)}
-                  </select></div>
+                  </select>
+                  <p className="mt-1 text-[10px] leading-snug text-onyx/45">new → qualified → assigned update automatically from the AI result and owner. Use this for later stages.</p></div>
                 <div><label className="label">Owner</label>
                   <select className="input" value={lead.assigned_owner_id || ""} onChange={(e) => act("owner", () => api(`/api/leads/${id}/assign`, { method: "POST", body: { ownerId: e.target.value || null } }), "Owner updated.")}>
                     <option value="">Unassigned</option>{owners.map((o) => <option key={o.id} value={o.id}>{o.full_name} ({o.active_leads}/{o.active_lead_limit})</option>)}
