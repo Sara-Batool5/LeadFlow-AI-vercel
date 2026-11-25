@@ -4,7 +4,7 @@ import { api } from "@/lib/client";
 import { FIELD_LABELS, mapRows, parseCsv } from "@/lib/csv";
 import { Alert, Modal, Spinner } from "./ui";
 
-const SAMPLE = "name,email,company,job title,industry,company size,country,source,budget,timeline,description\nJane Doe,jane@example.com,Example Co,COO,SaaS,50-200,Pakistan,linkedin,$10k,Q1,Needs a CRM to track inbound leads";
+const SAMPLE = "name,email,company,job title,website,industry,company size,country,source,budget,timeline,consent to contact,description\nJane Doe,jane@example.com,Example Co,COO,example.com,SaaS,50-200,Pakistan,linkedin,$10k,Q1,yes,Needs a CRM to track inbound leads";
 
 export default function CsvImport({ open, onClose, onDone }: { open: boolean; onClose: () => void; onDone: () => void }) {
   const input = useRef<HTMLInputElement>(null);
