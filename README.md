@@ -20,6 +20,7 @@ Set these in **Vercel → Project → Settings → Environment Variables** (see 
 - **Anyone** can create an account on the Sign in page. Each account gets a private workspace, so users never see each other's leads.
 - **Try the demo** logs into a shared sandbox with sample data (refreshed every 6 hours, AI actions capped at 30 per 24 hours).
 - Regular accounts are capped at 200 AI actions per 24 hours to protect your Groq key. The owner is unlimited.
+- **Rate limiting** (stored in a `login_attempts` table): 5 failed sign-ins per email and 20 per IP address per 15 minutes, 5 sign-ups per IP per hour, 15 demo starts per IP per hour. A correct sign-in resets that email's failed-attempt counter.
 - On first use the app creates an `app_users` table and adds a nullable `workspace_id` column to `leads`, `sales_owners` and `workflow_events`. Nothing is deleted or renamed. Your existing rows are assigned to the owner on the first `ADMIN_EMAIL` sign-in.
 
 ## Deploy
