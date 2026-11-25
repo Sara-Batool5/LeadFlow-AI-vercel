@@ -171,7 +171,7 @@ export default function Landing() {
         </div>
       </section>
       <footer className="border-t border-chalk-3 py-8 text-center text-sm text-onyx/55">
-        <Logo /> <p className="mt-3">© {new Date().getFullYear()} LeadFlow AI · Drafts only, no email is ever sent automatically.</p>
+        <div className="flex justify-center"><Logo /></div> <p className="mt-3">© {new Date().getFullYear()} LeadFlow AI · Drafts only, no email is ever sent automatically.</p>
       </footer>
     </main>
   );
