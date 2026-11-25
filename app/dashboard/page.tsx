@@ -22,14 +22,14 @@ const ICON: Record<string, string> = {
 };
 const Ico = ({ k }: { k: string }) => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d={ICON[k]} /></svg>;
 
-type Pt = { label: string; n: number; q: number };
+type Pt = { label: string; n: number; q: number; w: number };
 
 function buildSeries(daily: any[], mode: "daily" | "weekly"): Pt[] {
-  if (mode === "daily") return daily.slice(-30).map((d) => ({ label: shortDate(d.day), n: d.n, q: d.q }));
+  if (mode === "daily") return daily.slice(-30).map((d) => ({ label: shortDate(d.day), n: d.n, q: d.q, w: d.w }));
   const last = daily.slice(-84), out: Pt[] = [];
   for (let i = 0; i < last.length; i += 7) {
     const g = last.slice(i, i + 7);
-    out.push({ label: shortDate(g[0].day), n: g.reduce((a, x) => a + x.n, 0), q: g.reduce((a, x) => a + x.q, 0) });
+    out.push({ label: shortDate(g[0].day), n: g.reduce((a, x) => a + x.n, 0), q: g.reduce((a, x) => a + x.q, 0), w: g.reduce((a, x) => a + x.w, 0) });
   }
   return out;
 }
@@ -46,7 +46,7 @@ function smooth(pts: [number, number][], base: number) {
   return d;
 }
 
-function LeadsChart({ points, mode, sources, best, bestShares }: { points: Pt[]; mode: string; sources: { k: string; pct: number }[]; best: any; bestShares: number[] }) {
+function LeadsChart({ points, mode, sources, best, bestShares, rangeLabel }: { points: Pt[]; mode: string; sources: { k: string; pct: number }[]; best: any; bestShares: number[]; rangeLabel: string }) {
   const ref = useRef<SVGSVGElement>(null);
   const [hover, setHover] = useState<number | null>(null);
   const W = 900, H = 320, P = 16, BASE = H - 30;
@@ -93,15 +93,15 @@ function LeadsChart({ points, mode, sources, best, bestShares }: { points: Pt[];
       {h && (
         <div className="pointer-events-none absolute z-20 rounded-2xl bg-onyx px-4 py-2.5 text-chalk shadow-xl" style={{ bottom: "48%", left: `clamp(0px, calc(${(x(hover!) / W) * 100}% - 70px), calc(100% - 150px))` }}>
           <div className="text-[11px] text-chalk/60">{mode === "weekly" ? "Week of " : ""}{h.label}</div>
-          <div className="flex items-center gap-2 text-sm font-bold"><span className="h-2 w-2 rounded-full bg-tangerine" />{h.n} <span className="font-normal text-chalk/60">new</span></div>
-          <div className="flex items-center gap-2 text-sm font-bold"><span className="h-2 w-2 rounded-full bg-chalk" />{h.q} <span className="font-normal text-chalk/60">AI-qualified</span></div>
+          <div className="flex items-center gap-2 text-sm font-bold"><span className="h-2 w-2 rounded-full bg-tangerine" />{h.n} <span className="font-normal text-chalk/60">added</span></div>
+          <div className="flex items-center gap-2 text-sm font-bold"><span className="h-2 w-2 rounded-full bg-chalk" />{h.q} <span className="font-normal text-chalk/60">qualified</span></div>
         </div>
       )}
 
       {/* Floating cards (overlaid on large screens, stacked under the chart on small ones) */}
       <div className="mt-4 grid gap-3 sm:grid-cols-3 lg:contents">
         <div className={`glass-light p-4 lg:left-3 lg:top-2 lg:w-[235px] ${card}`}>
-          <div className="mb-2 flex items-center justify-between text-xs"><b className="text-sm">Lead sources</b><span className="text-onyx/45">All time</span></div>
+          <div className="mb-2 flex items-center justify-between text-xs"><b className="text-sm">Lead sources</b><span className="text-onyx/45">{rangeLabel}</span></div>
           <div className="space-y-2">
             {sources.length ? sources.map((s, i) => (
               <div key={s.k} className="flex items-center gap-2 text-[11px]">
@@ -123,7 +123,7 @@ function LeadsChart({ points, mode, sources, best, bestShares }: { points: Pt[];
 
         <div className={`glass-light p-4 lg:right-3 lg:top-2 lg:w-[200px] ${card}`}>
           <div className="flex items-center justify-between text-xs"><b className="text-sm">{peak?.n ? `${mode === "weekly" ? "Week of " : ""}${peak.label}` : "No peak yet"}</b><span className="grid h-6 w-6 place-items-center rounded-full bg-onyx/10">↗</span></div>
-          <div className="mt-0.5 text-[11px] text-onyx/50">New leads · peak {mode === "weekly" ? "week" : "day"}</div>
+          <div className="mt-0.5 text-[11px] text-onyx/50">Leads added · peak {mode === "weekly" ? "week" : "day"}</div>
           <div className="mt-2 flex items-center gap-2 text-3xl font-light"><span className="h-3.5 w-3.5 rounded-full bg-tangerine ring-4 ring-tangerine/25" />{peak?.n || 0}</div>
         </div>
       </div>
@@ -141,12 +141,22 @@ export default function Overview() {
   const s = stats.data;
   const count = (k: string) => s?.byStatus.find((x: any) => x.k === k)?.n || 0;
   const points = useMemo(() => (s ? buildSeries(s.daily, mode) : []), [s, mode]);
-  const sumN = points.reduce((a, p) => a + p.n, 0), sumQ = points.reduce((a, p) => a + p.q, 0);
-  const qualifiedLeads = (s?.sourceQualified || []).reduce((a: number, x: any) => a + x.n, 0);
+  const sumN = points.reduce((a, p) => a + p.n, 0), sumQ = points.reduce((a, p) => a + p.q, 0), sumW = points.reduce((a, p) => a + p.w, 0);
   const high = s?.byCategory.find((x: any) => x.k === "high_fit")?.n || 0;
-  const sources = (s?.bySource || []).slice(0, 4).map((x: any) => ({ k: pretty(x.k), pct: Math.round((x.n / Math.max(s.total, 1)) * 100) }));
-  const best = s ? (s.sourceQualified[0] ? { ...s.sourceQualified[0], label: "AI-qualified leads" } : s.bySource[0] ? { ...s.bySource[0], label: "leads" } : null) : null;
-  const bestShares = (s?.sourceQualified || []).slice(0, 3).map((x: any) => x.n);
+  // Lead sources + best source follow the selected range (Daily = last 30 days, Weekly = last 12 weeks)
+  const rangeLabel = mode === "daily" ? "Last 30 days" : "Last 12 weeks";
+  const rangeDays = new Set((s ? s.daily.slice(mode === "daily" ? -30 : -84) : []).map((d: any) => d.day));
+  const bySrc = new Map<string, { n: number; q: number }>();
+  (s?.daySources || []).filter((r: any) => rangeDays.has(r.day)).forEach((r: any) => {
+    const c = bySrc.get(r.k) || { n: 0, q: 0 }; c.n += r.n; c.q += r.q; bySrc.set(r.k, c);
+  });
+  const srcRows = [...bySrc.entries()].map(([k, v]) => ({ k, ...v }));
+  const srcTotal = srcRows.reduce((a, x) => a + x.n, 0);
+  const sources = [...srcRows].sort((a, b) => b.n - a.n).slice(0, 4).map((x) => ({ k: pretty(x.k), pct: Math.round((x.n / Math.max(srcTotal, 1)) * 100) }));
+  const byQ = [...srcRows].filter((x) => x.q > 0).sort((a, b) => b.q - a.q);
+  const byN = [...srcRows].sort((a, b) => b.n - a.n);
+  const best = byQ[0] ? { k: byQ[0].k, n: byQ[0].q, label: "qualified leads" } : byN[0] ? { k: byN[0].k, n: byN[0].n, label: "leads added" } : null;
+  const bestShares = (byQ.length ? byQ.map((x) => x.q) : byN.map((x) => x.n)).slice(0, 3);
 
   // Pipeline stage columns
   const stages: { k: string; n: number }[] = s ? ORDER.map((k) => ({ k, n: count(k) })).filter((x) => x.n > 0) : [];
@@ -193,13 +203,13 @@ export default function Overview() {
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-2">
               <div className="flex gap-1 rounded-full bg-chalk-2 p-1">{([["daily", "Daily"], ["weekly", "Weekly"]] as const).map(([k, l]) => <button key={k} onClick={() => setMode(k)} className={`rounded-full px-4 py-1.5 text-xs font-bold transition ${mode === k ? "bg-onyx text-chalk" : "text-onyx/60 hover:text-onyx"}`}>{l}</button>)}</div>
-              {[["#FF8A1C", "New leads", sumN], ["#121214", "AI-qualified", sumQ], ["#9A978F", "Won", count("won") + count("closed_won")]].map(([c, l, v]) => (
+              {[["#FF8A1C", "Added", sumN], ["#121214", "Qualified", sumQ], ["#9A978F", "Won", sumW]].map(([c, l, v]) => (
                 <span key={l as string} className="chip border border-chalk-3 bg-white/70 text-onyx"><span className="h-2 w-2 rounded-full" style={{ background: c as string }} />{l} <b>{v}</b></span>
               ))}
             </div>
-            <span className="text-xs text-onyx/45">{mode === "daily" ? "Last 30 days" : "Last 12 weeks"} · AI-qualified = rated high or medium fit</span>
+            <span className="text-xs text-onyx/45">{rangeLabel} · leads added in this period, and how many of them are Qualified / Won now</span>
           </div>
-          {s ? <LeadsChart key={mode} points={points} mode={mode} sources={sources} best={best} bestShares={bestShares} /> : <div className="grid h-72 place-items-center"><Spinner className="h-6 w-6" /></div>}
+          {s ? <LeadsChart key={mode} points={points} mode={mode} sources={sources} best={best} bestShares={bestShares} rangeLabel={rangeLabel} /> : <div className="grid h-72 place-items-center"><Spinner className="h-6 w-6" /></div>}
         </div>
       </div>
 
