@@ -11,15 +11,15 @@ type Ctx = { openLead: (id: number) => void; openCreate: () => void; openImport:
 const ShellCtx = createContext<Ctx>({ openLead() {}, openCreate() {}, openImport() {}, version: 0, bump() {} });
 export const useShell = () => useContext(ShellCtx);
 
-const I = (d: string) => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d={d} /></svg>;
+// Sidebar icons live in public/icons/*.png
 const NAV = [
-  ["/dashboard", "Overview", "M3 12l9-9 9 9M5 10v10h14V10"],
-  ["/dashboard/leads", "Leads", "M17 21v-2a4 4 0 00-4-4H7a4 4 0 00-4 4v2M10 11a4 4 0 100-8 4 4 0 000 8zM21 21v-2a4 4 0 00-3-3.9"],
-  ["/dashboard/workflow", "Agent Workflow", "M13 2L3 14h8l-1 8 10-12h-8z"],
-  ["/dashboard/review", "Human Review", "M9 12l2 2 4-4M21 12a9 9 0 11-18 0 9 9 0 0118 0z"],
-  ["/dashboard/team", "Sales Team", "M3 21h18M5 21V7l7-4 7 4v14M9 9h1M14 9h1M9 13h1M14 13h1"],
-  ["/dashboard/activity", "Activity & Audit", "M3 3v18h18M7 14l4-4 3 3 5-6"],
-  ["/dashboard/setup", "Setup", "M12 15a3 3 0 100-6 3 3 0 000 6zM19 12a7 7 0 00-.1-1.2l2-1.5-2-3.4-2.3 1a7 7 0 00-2-1.2L14 3h-4l-.6 2.7a7 7 0 00-2 1.2l-2.3-1-2 3.4 2 1.5A7 7 0 005 12c0 .4 0 .8.1 1.2l-2 1.5 2 3.4 2.3-1a7 7 0 002 1.2L10 21h4l.6-2.7a7 7 0 002-1.2l2.3 1 2-3.4-2-1.5c.1-.4.1-.8.1-1.2z"],
+  ["/dashboard", "Overview", "/icons/overview.png"],
+  ["/dashboard/leads", "Leads", "/icons/leads.png"],
+  ["/dashboard/workflow", "Agent Workflow", "/icons/workflow.png"],
+  ["/dashboard/review", "Human Review", "/icons/review.png"],
+  ["/dashboard/team", "Sales Team", "/icons/team.png"],
+  ["/dashboard/activity", "Activity & Audit", "/icons/activity.png"],
+  ["/dashboard/setup", "Setup", "/icons/setup.png"],
 ];
 
 export default function Shell({ children }: { children: React.ReactNode }) {
@@ -44,7 +44,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
               const active = href === "/dashboard" ? path === href : path.startsWith(href);
               return (
                 <Link key={href} href={href} className={`group flex shrink-0 items-center gap-3 rounded-2xl px-3.5 py-2.5 text-sm font-semibold transition-all duration-200 ${active ? "bg-onyx text-chalk shadow-soft" : "text-onyx/65 hover:bg-chalk-2 hover:text-onyx lg:hover:translate-x-1"}`}>
-                  <span className={active ? "text-tangerine" : "transition group-hover:text-tangerine"}>{I(d)}</span>{label}
+                  <img src={d} alt="" className={`h-5 w-5 shrink-0 object-contain transition duration-200 group-hover:scale-125 ${active ? "" : "opacity-90"}`} draggable={false} />{label}
                 </Link>
               );
             })}
