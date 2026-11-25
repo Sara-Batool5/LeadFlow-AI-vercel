@@ -5,7 +5,7 @@ import { Alert, Badge, PageHeader, Spinner } from "@/components/ui";
 import { useShell } from "@/components/Shell";
 import { fmtDate, initials, useApi } from "@/lib/client";
 
-const ORDER = ["new", "needs_review", "assigned", "contacted", "qualified", "in progress", "won", "lost", "disqualified", "closed"];
+const ORDER = ["new", "qualifying", "needs_review", "assigned", "contacted", "qualified", "in progress", "won", "closed_won", "lost", "closed_lost", "disqualified", "closed"];
 const DOTS = ["#FF8A1C", "#121214", "#FFC23D", "#9A978F", "#E9730A"];
 const pretty = (s: string) => String(s).replace(/_/g, " ");
 const shortDate = (d: string) => new Date(d + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" });
@@ -193,7 +193,7 @@ export default function Overview() {
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-2">
               <div className="flex gap-1 rounded-full bg-chalk-2 p-1">{([["daily", "Daily"], ["weekly", "Weekly"]] as const).map(([k, l]) => <button key={k} onClick={() => setMode(k)} className={`rounded-full px-4 py-1.5 text-xs font-bold transition ${mode === k ? "bg-onyx text-chalk" : "text-onyx/60 hover:text-onyx"}`}>{l}</button>)}</div>
-              {[["#FF8A1C", "New leads", sumN], ["#121214", "Qualified", sumQ], ["#9A978F", "Won", count("won")]].map(([c, l, v]) => (
+              {[["#FF8A1C", "New leads", sumN], ["#121214", "Qualified", sumQ], ["#9A978F", "Won", count("won") + count("closed_won")]].map(([c, l, v]) => (
                 <span key={l as string} className="chip border border-chalk-3 bg-white/70 text-onyx"><span className="h-2 w-2 rounded-full" style={{ background: c as string }} />{l} <b>{v}</b></span>
               ))}
             </div>

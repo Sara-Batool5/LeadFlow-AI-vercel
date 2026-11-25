@@ -9,6 +9,7 @@ const STATUSES = ["new", "needs_review", "assigned", "contacted", "qualified", "
 export default function Leads() {
   const { openCreate, openImport, openLead, version } = useShell();
   const { data, error, loading, reload } = useApi<any[]>("/api/leads");
+  const statusList = useApi<string[]>("/api/statuses").data || STATUSES;
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("all");
   const [extra, setExtra] = useState<Record<string, string>>({});
@@ -40,7 +41,7 @@ export default function Leads() {
         <div className="mb-4 flex flex-wrap items-center gap-3">
           <input className="input max-w-xs" placeholder="Search name, email, company…" value={search} onChange={(e) => setSearch(e.target.value)} />
           <div className="flex flex-wrap gap-1.5">
-            {["all", ...STATUSES].map((s) => <button key={s} onClick={() => setStatus(s)} className={`chip transition ${status === s ? "bg-onyx text-chalk" : "bg-chalk-2 hover:bg-chalk-3"}`}>{s}</button>)}
+            {["all", ...statusList].map((s) => <button key={s} onClick={() => setStatus(s)} className={`chip transition ${status === s ? "bg-onyx text-chalk" : "bg-chalk-2 hover:bg-chalk-3"}`}>{s}</button>)}
           </div>
         </div>
         {Object.keys(extra).length > 0 && (
