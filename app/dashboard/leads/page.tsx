@@ -41,13 +41,13 @@ export default function Leads() {
         <div className="mb-4 flex flex-wrap items-center gap-3">
           <input className="input max-w-xs" placeholder="Search name, email, company…" value={search} onChange={(e) => setSearch(e.target.value)} />
           <div className="flex flex-wrap gap-1.5">
-            {["all", ...statusList].map((s) => <button key={s} onClick={() => setStatus(s)} className={`chip transition ${status === s ? "bg-onyx text-chalk" : "bg-chalk-2 hover:bg-chalk-3"}`}>{s}</button>)}
+            {["all", ...statusList].map((s) => <button key={s} onClick={() => setStatus(s)} className={`chip transition ${status === s ? "bg-onyx text-chalk" : "bg-chalk-2 hover:bg-chalk-3"}`}>{s.replace(/_/g, " ")} <span className="opacity-60">{s === "all" ? (data?.length ?? 0) : (data || []).filter((l) => (l.status || "new") === s).length}</span></button>)}
           </div>
         </div>
         {Object.keys(extra).length > 0 && (
           <div className="mb-4 flex flex-wrap items-center gap-2 text-xs">
             <span className="text-onyx/50">Filtered by:</span>
-            {Object.entries(extra).map(([k, v]) => <span key={k} className="chip bg-tangerine-soft text-tangerine-dark">{k === "recent" ? `last ${v} days` : k === "unassigned" ? "no owner" : `${k}: ${v.replace(/_/g, " ")}`}</span>)}
+            {Object.entries(extra as Record<string, string>).map(([k, v]) => <span key={k} className="chip bg-tangerine-soft text-tangerine-dark">{k === "recent" ? `last ${v} days` : k === "unassigned" ? "no owner" : `${k}: ${v.replace(/_/g, " ")}`}</span>)}
             <button className="font-semibold underline" onClick={() => { setExtra({}); window.history.replaceState(null, "", "/dashboard/leads"); }}>Clear</button>
           </div>
         )}

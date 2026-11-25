@@ -94,7 +94,7 @@ function LeadsChart({ points, mode, sources, best, bestShares }: { points: Pt[];
         <div className="pointer-events-none absolute z-20 rounded-2xl bg-onyx px-4 py-2.5 text-chalk shadow-xl" style={{ bottom: "48%", left: `clamp(0px, calc(${(x(hover!) / W) * 100}% - 70px), calc(100% - 150px))` }}>
           <div className="text-[11px] text-chalk/60">{mode === "weekly" ? "Week of " : ""}{h.label}</div>
           <div className="flex items-center gap-2 text-sm font-bold"><span className="h-2 w-2 rounded-full bg-tangerine" />{h.n} <span className="font-normal text-chalk/60">new</span></div>
-          <div className="flex items-center gap-2 text-sm font-bold"><span className="h-2 w-2 rounded-full bg-chalk" />{h.q} <span className="font-normal text-chalk/60">qualified</span></div>
+          <div className="flex items-center gap-2 text-sm font-bold"><span className="h-2 w-2 rounded-full bg-chalk" />{h.q} <span className="font-normal text-chalk/60">AI-qualified</span></div>
         </div>
       )}
 
@@ -145,7 +145,7 @@ export default function Overview() {
   const qualifiedLeads = (s?.sourceQualified || []).reduce((a: number, x: any) => a + x.n, 0);
   const high = s?.byCategory.find((x: any) => x.k === "high_fit")?.n || 0;
   const sources = (s?.bySource || []).slice(0, 4).map((x: any) => ({ k: pretty(x.k), pct: Math.round((x.n / Math.max(s.total, 1)) * 100) }));
-  const best = s ? (s.sourceQualified[0] ? { ...s.sourceQualified[0], label: "qualified leads" } : s.bySource[0] ? { ...s.bySource[0], label: "leads" } : null) : null;
+  const best = s ? (s.sourceQualified[0] ? { ...s.sourceQualified[0], label: "AI-qualified leads" } : s.bySource[0] ? { ...s.bySource[0], label: "leads" } : null) : null;
   const bestShares = (s?.sourceQualified || []).slice(0, 3).map((x: any) => x.n);
 
   // Pipeline stage columns
@@ -183,7 +183,7 @@ export default function Overview() {
             <div className="mt-5 flex h-14 items-end gap-[3px]">{(s?.daily.slice(-30) || []).map((d: any, i: number) => <span key={i} className="flex-1 rounded-sm bg-onyx/15 transition-all hover:bg-tangerine" style={{ height: `${Math.max(8, (d.n / Math.max(1, ...s.daily.map((x: any) => x.n))) * 100)}%`, background: i === 29 ? "#FF8A1C" : undefined }} />)}</div>
           </div>
           <div className="grid grid-cols-2 gap-4">
-            {[["Qualified", qualifiedLeads], ["High fit", high], ["Unassigned", s?.unassigned ?? 0], ["Drafts to review", s?.drafts.pending ?? 0]].map(([k, v], i) => (
+            {[["Qualified", count("qualified")], ["High fit", high], ["Unassigned", s?.unassigned ?? 0], ["Drafts to review", s?.drafts.pending ?? 0]].map(([k, v], i) => (
               <div key={k as string} className="card p-5 transition hover:-translate-y-1"><div className={`mb-3 h-8 w-8 rounded-xl ${i === 0 ? "bg-tangerine" : "bg-onyx"}`} /><div className="text-3xl font-light">{v}</div><div className="mt-1 text-[11px] font-semibold uppercase tracking-wide text-onyx/50">{k}</div></div>
             ))}
           </div>
@@ -193,11 +193,11 @@ export default function Overview() {
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-2">
               <div className="flex gap-1 rounded-full bg-chalk-2 p-1">{([["daily", "Daily"], ["weekly", "Weekly"]] as const).map(([k, l]) => <button key={k} onClick={() => setMode(k)} className={`rounded-full px-4 py-1.5 text-xs font-bold transition ${mode === k ? "bg-onyx text-chalk" : "text-onyx/60 hover:text-onyx"}`}>{l}</button>)}</div>
-              {[["#FF8A1C", "New leads", sumN], ["#121214", "Qualified", sumQ], ["#9A978F", "Won", count("won") + count("closed_won")]].map(([c, l, v]) => (
+              {[["#FF8A1C", "New leads", sumN], ["#121214", "AI-qualified", sumQ], ["#9A978F", "Won", count("won") + count("closed_won")]].map(([c, l, v]) => (
                 <span key={l as string} className="chip border border-chalk-3 bg-white/70 text-onyx"><span className="h-2 w-2 rounded-full" style={{ background: c as string }} />{l} <b>{v}</b></span>
               ))}
             </div>
-            <span className="text-xs text-onyx/45">{mode === "daily" ? "Last 30 days" : "Last 12 weeks"}</span>
+            <span className="text-xs text-onyx/45">{mode === "daily" ? "Last 30 days" : "Last 12 weeks"} · AI-qualified = rated high or medium fit</span>
           </div>
           {s ? <LeadsChart key={mode} points={points} mode={mode} sources={sources} best={best} bestShares={bestShares} /> : <div className="grid h-72 place-items-center"><Spinner className="h-6 w-6" /></div>}
         </div>

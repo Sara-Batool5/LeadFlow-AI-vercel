@@ -4,6 +4,33 @@ import { Alert, Badge, PageHeader, Spinner } from "@/components/ui";
 import { useShell } from "@/components/Shell";
 import { fmtDateTime, useApi } from "@/lib/client";
 
+const label = (k: string) => k.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase()).replace(/\bid\b/gi, "ID");
+const SNAKE = /^[a-z0-9]+(_[a-z0-9]+)+$/;
+
+function Value({ v }: { v: any }) {
+  if (v === null || v === undefined || v === "") return <span className="text-onyx/40">—</span>;
+  if (typeof v === "boolean") return <span className={`chip ${v ? "bg-emerald-100 text-emerald-800" : "bg-chalk-2 text-onyx/70"}`}>{v ? "Yes" : "No"}</span>;
+  if (Array.isArray(v)) return v.length ? <span>{v.map((x) => (typeof x === "object" ? JSON.stringify(x) : String(x))).join(", ")}</span> : <span className="text-onyx/40">None</span>;
+  if (typeof v === "object") return <Rows data={v} />;
+  if (typeof v === "string" && SNAKE.test(v)) return <span className="font-semibold capitalize">{v.replace(/_/g, " ")}</span>;
+  return <span className="whitespace-pre-wrap break-words">{String(v)}</span>;
+}
+
+function Rows({ data }: { data: Record<string, any> }) {
+  const entries = Object.entries(data || {});
+  if (!entries.length) return <span className="text-onyx/40">No extra details were recorded for this event.</span>;
+  return (
+    <dl className="grid gap-x-6 gap-y-2.5 sm:grid-cols-[minmax(150px,220px)_1fr]">
+      {entries.map(([k, v]) => (
+        <div key={k} className="contents">
+          <dt className="text-xs font-semibold uppercase tracking-wide text-onyx/50">{label(k)}</dt>
+          <dd className="text-sm">{<Value v={v} />}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
 export default function Activity() {
   const { openLead, version } = useShell();
   const { data, error, loading, reload } = useApi<any[]>("/api/events");
@@ -33,7 +60,12 @@ export default function Activity() {
                   <Badge value={e.event_status} />
                   <button className="btn-ghost btn-sm" onClick={() => setOpen(open === e.id ? null : e.id)}>{open === e.id ? "Hide" : "Details"}</button>
                 </div>
-                {open === e.id && <pre className="mt-3 max-h-64 animate-pop overflow-auto rounded-2xl bg-onyx p-4 text-xs text-chalk">{JSON.stringify(e.details, null, 2)}</pre>}
+                {open === e.id && (
+                  <div className="mt-3 animate-pop rounded-2xl bg-white p-4">
+                    <Rows data={e.details} />
+                    <details className="mt-3 text-xs text-onyx/50"><summary className="cursor-pointer font-semibold">Show raw data</summary><pre className="mt-2 max-h-48 overflow-auto rounded-xl bg-onyx p-3 text-chalk">{JSON.stringify(e.details, null, 2)}</pre></details>
+                  </div>
+                )}
               </li>
             ))}
             {!rows.length && <li className="py-12 text-center text-sm text-onyx/50">No events.</li>}
