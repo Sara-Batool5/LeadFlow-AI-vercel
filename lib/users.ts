@@ -10,6 +10,9 @@ export function ensureSchema(): Promise<void> {
       await q(`CREATE TABLE IF NOT EXISTS app_users (
         id SERIAL PRIMARY KEY, email TEXT UNIQUE NOT NULL, name TEXT NOT NULL, password_hash TEXT NOT NULL,
         is_demo BOOLEAN NOT NULL DEFAULT FALSE, seeded_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`);
+      await q(`CREATE TABLE IF NOT EXISTS login_attempts (
+        id BIGSERIAL PRIMARY KEY, kind TEXT NOT NULL, key TEXT NOT NULL, ok BOOLEAN NOT NULL DEFAULT FALSE, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`);
+      try { await q("CREATE INDEX IF NOT EXISTS idx_login_attempts_lookup ON login_attempts (kind, key, created_at)"); } catch {}
       for (const t of ["leads", "sales_owners", "workflow_events"]) {
         try { await q(`ALTER TABLE ${t} ADD COLUMN IF NOT EXISTS workspace_id INTEGER`); } catch {}
       }

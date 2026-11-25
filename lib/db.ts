@@ -125,13 +125,26 @@ export async function listEvents(leadId?: number | null) {
 // ---------------------------------------------------------------------------
 // Leads
 // ---------------------------------------------------------------------------
+// One source of truth for a lead's pipeline stage. Early stages are derived from facts (owner assigned,
+// latest AI result) so the Leads page, the pipeline and the dashboard can never disagree; later stages
+// (contacted, closed_won, ...) are manual and kept exactly as stored.
+const LQ = `SELECT r.category FROM qualification_results r WHERE r.lead_id = l.id ORDER BY r.created_at DESC LIMIT 1`;
+const EFF = `(CASE WHEN COALESCE(l.status,'new') IN ('new','qualifying','needs_review','qualified','assigned') THEN
+    CASE WHEN l.assigned_owner_id IS NOT NULL THEN 'assigned'
+         WHEN lq.category IN ('high_fit','medium_fit') THEN 'qualified'
+         WHEN lq.category = 'needs_review' THEN 'needs_review'
+         WHEN COALESCE(l.status,'new') = 'qualifying' THEN 'qualifying'
+         ELSE 'new' END
+  ELSE l.status END)`;
+
 const LEAD_SELECT = `
   SELECT l.id, l.lead_reference, l.full_name AS contact_name, l.email, l.company, l.job_title, l.website,
          l.company_size, l.industry, l.country, l.source, l.need_description AS description,
-         l.budget_range AS budget, l.timeline, l.status, l.priority, l.assigned_owner_id,
+         l.budget_range AS budget, l.timeline, ${EFF} AS status, l.status AS stored_status, l.priority, l.assigned_owner_id,
          l.duplicate_of_lead_id, l.consent_to_contact, l.created_at, l.updated_at,
          s.full_name AS assigned_owner, s.email AS assigned_owner_email
-  FROM leads l LEFT JOIN sales_owners s ON s.id = l.assigned_owner_id`;
+  FROM leads l LEFT JOIN sales_owners s ON s.id = l.assigned_owner_id
+  LEFT JOIN LATERAL (${LQ}) lq ON TRUE`;
 
 export async function listLeads(search = "") {
   if (search) {
@@ -209,6 +222,12 @@ export async function saveQualification(leadId: number, r: any, model: string) {
      VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,NOW()) RETURNING id`,
     [leadId, model, Math.round(Number(r.score) || 0), clean(r.category) || "needs_review", clean(r.reasoning), JSON.stringify(missing), clean(r.recommended_next_action), r.human_review_required !== false]
   );
+  const cat = clean(r.category);
+  const target = cat === "high_fit" || cat === "medium_fit" ? "qualified" : cat === "needs_review" ? "needs_review" : null;
+  if (target) {
+    await q(`UPDATE leads SET status=$1, updated_at=NOW() WHERE id=$2 AND workspace_id=$3 AND COALESCE(status,'new') IN ('new','qualifying','needs_review')`,
+      [mapStatus(target, await allowedStatuses()), leadId, W()]);
+  }
   return row;
 }
 
@@ -249,6 +268,11 @@ export async function createOwner(o: any) {
 export const setOwnerAvailability = (id: number, available: boolean) =>
   q("UPDATE sales_owners SET is_available=$1 WHERE id=$2 AND workspace_id=$3", [!!available, id, W()]);
 
+async function markAssigned(leadId: number) {
+  await q(`UPDATE leads SET status=$1, updated_at=NOW() WHERE id=$2 AND workspace_id=$3 AND COALESCE(status,'new') IN ('new','qualifying','needs_review','qualified')`,
+    [mapStatus("assigned", await allowedStatuses()), leadId, W()]);
+}
+
 export async function assignAuto(leadId: number) {
   const lead = await getLead(leadId);
   if (!lead) return { ok: false, message: "Lead not found.", owner: null };
@@ -271,6 +295,7 @@ export async function assignAuto(leadId: number) {
   candidates.sort((a, b) => a.active_leads / Math.max(a.active_lead_limit, 1) - b.active_leads / Math.max(b.active_lead_limit, 1) || a.active_leads - b.active_leads);
   const sel = candidates[0];
   await q("UPDATE leads SET assigned_owner_id=$1, updated_at=NOW() WHERE id=$2 AND workspace_id=$3", [sel.id, leadId, W()]);
+  await markAssigned(leadId);
   await addEvent(leadId, "automatic_owner_assignment", `Lead assigned automatically to ${sel.full_name}.`, {
     owner_id: sel.id, owner_name: sel.full_name, specialization: sel.specialization, lead_industry: industry, assignment_reason: reason,
   });
@@ -282,6 +307,7 @@ export async function assignManual(leadId: number, ownerId: number | null) {
   const owner = ownerId ? (await listOwners()).find((o) => o.id === ownerId) : null;
   if (ownerId && !owner) throw new Error("Sales owner not found.");
   await q("UPDATE leads SET assigned_owner_id=$1, updated_at=NOW() WHERE id=$2 AND workspace_id=$3", [ownerId, leadId, W()]);
+  if (ownerId) await markAssigned(leadId);
   await addEvent(leadId, ownerId ? "manual_owner_assignment" : "owner_unassigned",
     ownerId ? `Lead assigned manually to ${owner?.full_name}.` : "Lead owner was removed.", { owner_id: ownerId }, "completed", ctx().name);
 }
@@ -340,7 +366,7 @@ export async function stats() {
   const [totals, byStatus, byPriority, bySource, daily, qual, drafts, byCategory, sourceQualified, topIndustry] = await Promise.all([
     q(`SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE assigned_owner_id IS NULL)::int AS unassigned,
               COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '7 days')::int AS last7 FROM leads WHERE workspace_id=$1`, w),
-    q("SELECT COALESCE(status,'new') AS k, COUNT(*)::int AS n FROM leads WHERE workspace_id=$1 GROUP BY 1 ORDER BY n DESC", w),
+    q(`SELECT ${EFF} AS k, COUNT(*)::int AS n FROM leads l LEFT JOIN LATERAL (${LQ}) lq ON TRUE WHERE l.workspace_id=$1 GROUP BY 1 ORDER BY n DESC`, w),
     q("SELECT COALESCE(priority,'unassessed') AS k, COUNT(*)::int AS n FROM leads WHERE workspace_id=$1 GROUP BY 1", w),
     q("SELECT COALESCE(NULLIF(source,''),'unknown') AS k, COUNT(*)::int AS n FROM leads WHERE workspace_id=$1 GROUP BY 1 ORDER BY n DESC", w),
     q(`SELECT to_char(d::date,'YYYY-MM-DD') AS day, COALESCE(c.n,0)::int AS n, COALESCE(qq.n,0)::int AS q
