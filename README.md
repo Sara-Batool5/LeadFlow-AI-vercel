@@ -12,16 +12,24 @@ Set these in **Vercel → Project → Settings → Environment Variables** (see 
 | `NEON_DATABASE_URL` | Your Neon connection string (the pooled one is best for Vercel) |
 | `GROQ_API_KEY` | Your Groq key |
 | `GROQ_MODEL` | Optional, default `openai/gpt-oss-120b` |
-| `APP_PASSWORD` | Password for the dashboard (required, otherwise nobody can sign in) |
+| `AUTH_SECRET` | Long random string used to sign sessions (falls back to `APP_PASSWORD` if unset) |
+| `ADMIN_EMAIL` | Your email. Signing in with it + `APP_PASSWORD` opens your existing leads |
+| `APP_PASSWORD` | The owner password for `ADMIN_EMAIL` |
+
+## Accounts
+- **Anyone** can create an account on the Sign in page. Each account gets a private workspace, so users never see each other's leads.
+- **Try the demo** logs into a shared sandbox with sample data (refreshed every 6 hours, AI actions capped at 30 per 24 hours).
+- Regular accounts are capped at 200 AI actions per 24 hours to protect your Groq key. The owner is unlimited.
+- On first use the app creates an `app_users` table and adds a nullable `workspace_id` column to `leads`, `sales_owners` and `workflow_events`. Nothing is deleted or renamed. Your existing rows are assigned to the owner on the first `ADMIN_EMAIL` sign-in.
 
 ## Deploy
 1. Create a new GitHub repository and upload everything in this folder (`.env` files are git-ignored; never commit secrets).
 2. In Vercel: **Add New → Project → import the repo** (Framework preset: Next.js, no build settings to change).
-3. Add the four environment variables above, then **Deploy**.
-4. Open the site, click **Open Dashboard**, sign in, and check **Setup** — both rows should be green.
+3. Add the environment variables above, then **Deploy**.
+4. Open the site, click **Open Dashboard**, sign in with `ADMIN_EMAIL` + `APP_PASSWORD`, and check **Setup** — both rows should be green.
 
 ## Database
-This app uses the **same tables** as the Streamlit version (`leads`, `sales_owners`, `qualification_results`, `email_drafts`, `workflow_events`). It never creates or alters tables. Point `NEON_DATABASE_URL` at the existing database, or at a Neon *branch* of it for safe testing.
+This app uses the **same tables** as the Streamlit version (`leads`, `sales_owners`, `qualification_results`, `email_drafts`, `workflow_events`). Point `NEON_DATABASE_URL` at the existing database, or at a Neon *branch* of it for safe testing. See "Accounts" above for the small additive schema change made on first run.
 
 ## Local run (optional)
 ```
