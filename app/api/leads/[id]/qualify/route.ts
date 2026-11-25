@@ -1,9 +1,10 @@
 import { handle } from "@/lib/api";
-import { addEvent, getLead, saveQualification, setPriority } from "@/lib/db";
+import { addEvent, assertAiAllowed, getLead, saveQualification, setPriority } from "@/lib/db";
 import { modelName, qualifyLead } from "@/lib/ai";
 export const maxDuration = 60;
 
 export const POST = handle(async (_r, { params }) => {
+  await assertAiAllowed();
   const id = Number(params.id);
   const lead = await getLead(id);
   if (!lead) throw new Error("Lead not found.");
