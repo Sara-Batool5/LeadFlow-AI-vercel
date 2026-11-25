@@ -1,7 +1,8 @@
 import { Pool } from "pg";
+import { ctx } from "./ctx";
 
 // ---------------------------------------------------------------------------
-// Connection (same Neon PostgreSQL database the Streamlit app used)
+// Connection (Neon PostgreSQL)
 // ---------------------------------------------------------------------------
 const g = globalThis as any;
 
@@ -19,6 +20,7 @@ export async function q<T = any>(text: string, params: any[] = []): Promise<T[]>
   return res.rows as T[];
 }
 
+const W = () => ctx().ws; // current workspace (= signed-in user)
 const clean = (v: any) => (v === null || v === undefined ? "" : String(v).trim());
 const norm = (v: any) => clean(v).toLowerCase().replace(/\s+/g, " ");
 const normSite = (v: any) => clean(v).toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0].trim();
@@ -44,12 +46,27 @@ export async function health() {
 }
 
 export async function tableCounts() {
-  const out: Record<string, number> = {};
-  for (const t of ["leads", "workflow_events", "qualification_results", "sales_owners", "email_drafts"]) {
-    const [r] = await q(`SELECT COUNT(*)::int AS n FROM ${t}`);
-    out[t] = r.n;
-  }
-  return out;
+  const w = [W()];
+  const one = async (sql: string) => (await q(sql, w))[0].n as number;
+  return {
+    leads: await one("SELECT COUNT(*)::int AS n FROM leads WHERE workspace_id=$1"),
+    sales_owners: await one("SELECT COUNT(*)::int AS n FROM sales_owners WHERE workspace_id=$1"),
+    qualification_results: await one("SELECT COUNT(*)::int AS n FROM qualification_results r JOIN leads l ON l.id=r.lead_id WHERE l.workspace_id=$1"),
+    email_drafts: await one("SELECT COUNT(*)::int AS n FROM email_drafts e JOIN leads l ON l.id=e.lead_id WHERE l.workspace_id=$1"),
+    workflow_events: await one("SELECT COUNT(*)::int AS n FROM workflow_events w LEFT JOIN leads l ON l.id=w.lead_id WHERE COALESCE(w.workspace_id,l.workspace_id)=$1"),
+  };
+}
+
+// Daily cap on AI actions (protects the shared Groq key). The admin is unlimited.
+export async function assertAiAllowed() {
+  const c = ctx();
+  if (c.admin) return;
+  const limit = c.demo ? 30 : 200;
+  const [r] = await q(
+    `SELECT COUNT(*)::int AS n FROM workflow_events
+     WHERE workspace_id=$1 AND actor <> 'Demo seed' AND created_at > NOW() - INTERVAL '24 hours'
+       AND event_type IN ('ai_qualification_completed','ai_decision_made','email_draft_created')`, [c.ws]);
+  if (r.n >= limit) throw Object.assign(new Error(`Daily AI limit reached (${limit} AI actions per 24 hours${c.demo ? " in the demo" : ""}). Try again tomorrow.`), { status: 429 });
 }
 
 // ---------------------------------------------------------------------------
@@ -57,9 +74,9 @@ export async function tableCounts() {
 // ---------------------------------------------------------------------------
 export async function addEvent(leadId: number | null, type: string, message: string, details: any = {}, status = "completed", actor = "LeadFlow AI") {
   const [r] = await q(
-    `INSERT INTO workflow_events (lead_id, event_type, event_status, message, details, actor, created_at)
-     VALUES ($1,$2,$3,$4,$5::jsonb,$6,NOW()) RETURNING id`,
-    [leadId, type, status, message, JSON.stringify(details || {}), actor]
+    `INSERT INTO workflow_events (lead_id, event_type, event_status, message, details, actor, workspace_id, created_at)
+     VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,NOW()) RETURNING id`,
+    [leadId, type, status, message, JSON.stringify(details || {}), actor, W()]
   );
   return r;
 }
@@ -69,9 +86,9 @@ export async function listEvents(leadId?: number | null) {
     `SELECT w.id, w.lead_id, w.event_type, w.event_status, w.message, w.details, w.actor, w.created_at,
             l.lead_reference, l.full_name AS contact_name, l.company
      FROM workflow_events w LEFT JOIN leads l ON l.id = w.lead_id
-     ${leadId ? "WHERE w.lead_id = $1" : ""}
+     WHERE COALESCE(w.workspace_id, l.workspace_id) = $1 ${leadId ? "AND w.lead_id = $2" : ""}
      ORDER BY w.created_at DESC LIMIT 500`,
-    leadId ? [leadId] : []
+    leadId ? [W(), leadId] : [W()]
   );
 }
 
@@ -88,14 +105,13 @@ const LEAD_SELECT = `
 
 export async function listLeads(search = "") {
   if (search) {
-    const t = `%${search}%`;
-    return q(`${LEAD_SELECT} WHERE l.full_name ILIKE $1 OR l.email ILIKE $1 OR l.company ILIKE $1 OR l.lead_reference ILIKE $1 ORDER BY l.created_at DESC`, [t]);
+    return q(`${LEAD_SELECT} WHERE l.workspace_id = $1 AND (l.full_name ILIKE $2 OR l.email ILIKE $2 OR l.company ILIKE $2 OR l.lead_reference ILIKE $2) ORDER BY l.created_at DESC`, [W(), `%${search}%`]);
   }
-  return q(`${LEAD_SELECT} ORDER BY l.created_at DESC`);
+  return q(`${LEAD_SELECT} WHERE l.workspace_id = $1 ORDER BY l.created_at DESC`, [W()]);
 }
 
 export async function getLead(id: number) {
-  const rows = await q(`${LEAD_SELECT} WHERE l.id = $1`, [id]);
+  const rows = await q(`${LEAD_SELECT} WHERE l.id = $1 AND l.workspace_id = $2`, [id, W()]);
   return rows[0] || null;
 }
 
@@ -104,13 +120,13 @@ export async function findDuplicates(lead: any) {
   if (!email && !name) return [];
   return q(
     `SELECT id, lead_reference, full_name AS contact_name, email, company, website, status, created_at
-     FROM leads WHERE
+     FROM leads WHERE workspace_id = $5 AND (
        ($1::text <> '' AND LOWER(TRIM(COALESCE(email,''))) = $1::text)
        OR ($2::text <> '' AND $3::text <> '' AND LOWER(TRIM(COALESCE(full_name,''))) = $2::text AND LOWER(TRIM(COALESCE(company,''))) = $3::text)
        OR ($2::text <> '' AND $4::text <> '' AND LOWER(TRIM(COALESCE(full_name,''))) = $2::text
-           AND LOWER(REGEXP_REPLACE(REGEXP_REPLACE(COALESCE(website,''), '^https?://', ''), '^www\\.', '')) LIKE $4::text)
+           AND LOWER(REGEXP_REPLACE(REGEXP_REPLACE(COALESCE(website,''), '^https?://', ''), '^www\\.', '')) LIKE $4::text))
      ORDER BY created_at DESC LIMIT 10`,
-    [email, name, company, site]
+    [email, name, company, site, W()]
   );
 }
 
@@ -123,14 +139,14 @@ function leadRef() {
 export async function createLead(l: any, origin = "form") {
   const [row] = await q(
     `INSERT INTO leads (lead_reference, full_name, email, company, job_title, website, company_size, industry, country, source,
-                        need_description, budget_range, timeline, status, priority, consent_to_contact, created_at, updated_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,NOW(),NOW())
+                        need_description, budget_range, timeline, status, priority, consent_to_contact, workspace_id, created_at, updated_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,NOW(),NOW())
      RETURNING id, lead_reference`,
     [
       leadRef(), clean(l.contact_name), clean(l.email), clean(l.company), clean(l.job_title), clean(l.website),
       clean(l.company_size), clean(l.industry), clean(l.country), clean(l.source) || "website_form",
       clean(l.description) || "Not provided", clean(l.budget), clean(l.timeline),
-      clean(l.status) || "new", normalizePriority(l.priority), !!l.consent_to_contact,
+      clean(l.status) || "new", normalizePriority(l.priority), !!l.consent_to_contact, W(),
     ]
   );
   await addEvent(row.id, "lead_created", `Lead ${row.lead_reference} was created (${origin}).`, { origin, lead_reference: row.lead_reference });
@@ -138,16 +154,16 @@ export async function createLead(l: any, origin = "form") {
 }
 
 export async function setStatus(id: number, status: string) {
-  await q("UPDATE leads SET status=$1, updated_at=NOW() WHERE id=$2", [status, id]);
-  await addEvent(id, "lead_status_updated", `Lead status changed to "${status}".`, { new_status: status }, "completed", "Administrator");
+  await q("UPDATE leads SET status=$1, updated_at=NOW() WHERE id=$2 AND workspace_id=$3", [status, id, W()]);
+  await addEvent(id, "lead_status_updated", `Lead status changed to "${status}".`, { new_status: status }, "completed", ctx().name);
 }
 
 export async function setPriority(id: number, category: string) {
-  await q("UPDATE leads SET priority=$1, updated_at=NOW() WHERE id=$2", [normalizePriority(category), id]);
+  await q("UPDATE leads SET priority=$1, updated_at=NOW() WHERE id=$2 AND workspace_id=$3", [normalizePriority(category), id, W()]);
 }
 
 export async function existingEmails(): Promise<Set<string>> {
-  const rows = await q("SELECT LOWER(TRIM(email)) AS e FROM leads");
+  const rows = await q("SELECT LOWER(TRIM(email)) AS e FROM leads WHERE workspace_id=$1", [W()]);
   return new Set(rows.map((r) => r.e));
 }
 
@@ -155,6 +171,7 @@ export async function existingEmails(): Promise<Set<string>> {
 // Qualification
 // ---------------------------------------------------------------------------
 export async function saveQualification(leadId: number, r: any, model: string) {
+  if (!(await getLead(leadId))) throw new Error("Lead not found.");
   const missing = Array.isArray(r.missing_information) ? r.missing_information : [String(r.missing_information || "")];
   const [row] = await q(
     `INSERT INTO qualification_results (lead_id, model_name, score, category, reasoning, missing_information, recommended_next_action, human_review_required, created_at)
@@ -165,16 +182,17 @@ export async function saveQualification(leadId: number, r: any, model: string) {
 }
 
 export const getQualifications = (leadId: number) =>
-  q("SELECT * FROM qualification_results WHERE lead_id=$1 ORDER BY created_at DESC", [leadId]);
+  q(`SELECT r.* FROM qualification_results r JOIN leads l ON l.id = r.lead_id
+     WHERE r.lead_id=$1 AND l.workspace_id=$2 ORDER BY r.created_at DESC`, [leadId, W()]);
 
 export async function similarOutcomes(industry: string, excludeLeadId: number) {
   if (!norm(industry)) return [];
   return q(
     `SELECT qr.score, qr.category, qr.recommended_next_action, l.company_size
      FROM qualification_results qr JOIN leads l ON l.id = qr.lead_id
-     WHERE LOWER(COALESCE(l.industry,'')) = $1 AND l.id <> $2
+     WHERE l.workspace_id = $3 AND LOWER(COALESCE(l.industry,'')) = $1 AND l.id <> $2
      ORDER BY qr.created_at DESC LIMIT 5`,
-    [norm(industry), excludeLeadId]
+    [norm(industry), excludeLeadId, W()]
   );
 }
 
@@ -185,19 +203,20 @@ export const listOwners = () =>
   q(`SELECT s.id, s.full_name, s.email, s.specialization, s.is_available, s.active_lead_limit,
             COUNT(CASE WHEN LOWER(COALESCE(l.status,'')) NOT IN ('closed','won','lost','disqualified') THEN 1 END)::int AS active_leads
      FROM sales_owners s LEFT JOIN leads l ON l.assigned_owner_id = s.id
-     GROUP BY s.id ORDER BY s.full_name`);
+     WHERE s.workspace_id = $1
+     GROUP BY s.id ORDER BY s.full_name`, [W()]);
 
 export async function createOwner(o: any) {
   const [r] = await q(
-    `INSERT INTO sales_owners (full_name, email, specialization, is_available, active_lead_limit, created_at)
-     VALUES ($1,$2,$3,TRUE,$4,NOW()) RETURNING id`,
-    [clean(o.full_name), clean(o.email), clean(o.specialization), Number(o.active_lead_limit) || 10]
+    `INSERT INTO sales_owners (full_name, email, specialization, is_available, active_lead_limit, workspace_id, created_at)
+     VALUES ($1,$2,$3,TRUE,$4,$5,NOW()) RETURNING id`,
+    [clean(o.full_name), clean(o.email), clean(o.specialization), Number(o.active_lead_limit) || 10, W()]
   );
   return r;
 }
 
 export const setOwnerAvailability = (id: number, available: boolean) =>
-  q("UPDATE sales_owners SET is_available=$1 WHERE id=$2", [!!available, id]);
+  q("UPDATE sales_owners SET is_available=$1 WHERE id=$2 AND workspace_id=$3", [!!available, id, W()]);
 
 export async function assignAuto(leadId: number) {
   const lead = await getLead(leadId);
@@ -220,7 +239,7 @@ export async function assignAuto(leadId: number) {
   }
   candidates.sort((a, b) => a.active_leads / Math.max(a.active_lead_limit, 1) - b.active_leads / Math.max(b.active_lead_limit, 1) || a.active_leads - b.active_leads);
   const sel = candidates[0];
-  await q("UPDATE leads SET assigned_owner_id=$1, updated_at=NOW() WHERE id=$2", [sel.id, leadId]);
+  await q("UPDATE leads SET assigned_owner_id=$1, updated_at=NOW() WHERE id=$2 AND workspace_id=$3", [sel.id, leadId, W()]);
   await addEvent(leadId, "automatic_owner_assignment", `Lead assigned automatically to ${sel.full_name}.`, {
     owner_id: sel.id, owner_name: sel.full_name, specialization: sel.specialization, lead_industry: industry, assignment_reason: reason,
   });
@@ -228,10 +247,12 @@ export async function assignAuto(leadId: number) {
 }
 
 export async function assignManual(leadId: number, ownerId: number | null) {
-  await q("UPDATE leads SET assigned_owner_id=$1, updated_at=NOW() WHERE id=$2", [ownerId, leadId]);
+  if (!(await getLead(leadId))) throw new Error("Lead not found.");
   const owner = ownerId ? (await listOwners()).find((o) => o.id === ownerId) : null;
+  if (ownerId && !owner) throw new Error("Sales owner not found.");
+  await q("UPDATE leads SET assigned_owner_id=$1, updated_at=NOW() WHERE id=$2 AND workspace_id=$3", [ownerId, leadId, W()]);
   await addEvent(leadId, ownerId ? "manual_owner_assignment" : "owner_unassigned",
-    ownerId ? `Lead assigned manually to ${owner?.full_name}.` : "Lead owner was removed.", { owner_id: ownerId }, "completed", "Administrator");
+    ownerId ? `Lead assigned manually to ${owner?.full_name}.` : "Lead owner was removed.", { owner_id: ownerId }, "completed", ctx().name);
 }
 
 // ---------------------------------------------------------------------------
@@ -240,11 +261,12 @@ export async function assignManual(leadId: number, ownerId: number | null) {
 export const listDrafts = (leadId?: number) =>
   q(`SELECT e.id, e.lead_id, e.recipient_email, e.subject, e.body, e.draft_status, e.approved_by, e.approved_at, e.created_at, e.updated_at,
             l.lead_reference, l.full_name AS contact_name, l.company
-     FROM email_drafts e LEFT JOIN leads l ON l.id = e.lead_id
-     ${leadId ? "WHERE e.lead_id = $1" : ""} ORDER BY e.created_at DESC`, leadId ? [leadId] : []);
+     FROM email_drafts e JOIN leads l ON l.id = e.lead_id
+     WHERE l.workspace_id = $1 ${leadId ? "AND e.lead_id = $2" : ""} ORDER BY e.created_at DESC`, leadId ? [W(), leadId] : [W()]);
 
 export async function saveDraft(leadId: number, recipient: string, subject: string, body: string, draftId?: number) {
   if (!clean(recipient) || !clean(subject) || !clean(body)) throw new Error("Recipient, subject and body are required.");
+  if (!(await getLead(leadId))) throw new Error("Lead not found.");
   let id: number, type: string, msg: string;
   if (draftId) {
     const rows = await q(
@@ -262,44 +284,50 @@ export async function saveDraft(leadId: number, recipient: string, subject: stri
   return id;
 }
 
-export async function approveDraft(id: number, by = "Administrator") {
+export async function approveDraft(id: number) {
+  const by = ctx().name;
   const rows = await q(
-    `UPDATE email_drafts SET draft_status='approved', approved_by=$1, approved_at=NOW(), updated_at=NOW() WHERE id=$2 RETURNING lead_id, subject`, [by, id]);
+    `UPDATE email_drafts SET draft_status='approved', approved_by=$1, approved_at=NOW(), updated_at=NOW()
+     WHERE id=$2 AND lead_id IN (SELECT id FROM leads WHERE workspace_id=$3) RETURNING lead_id, subject`, [by, id, W()]);
   if (!rows.length) throw new Error("Draft not found.");
   await addEvent(rows[0].lead_id, "email_draft_approved", "Follow-up email draft was approved. No email was sent.", { email_draft_id: id, approved_by: by, subject: rows[0].subject }, "completed", by);
 }
 
 export async function deleteDraft(id: number) {
-  const rows = await q("DELETE FROM email_drafts WHERE id=$1 RETURNING lead_id", [id]);
-  if (rows.length) await addEvent(rows[0].lead_id, "email_draft_deleted", "Follow-up email draft was deleted.", { email_draft_id: id }, "completed", "Administrator");
+  const rows = await q("DELETE FROM email_drafts WHERE id=$1 AND lead_id IN (SELECT id FROM leads WHERE workspace_id=$2) RETURNING lead_id", [id, W()]);
+  if (rows.length) await addEvent(rows[0].lead_id, "email_draft_deleted", "Follow-up email draft was deleted.", { email_draft_id: id }, "completed", ctx().name);
 }
 
 // ---------------------------------------------------------------------------
 // Dashboard statistics
 // ---------------------------------------------------------------------------
-const LATEST_Q = `(SELECT DISTINCT ON (lead_id) lead_id, category FROM qualification_results ORDER BY lead_id, created_at DESC)`;
+const LATEST_Q = `(SELECT DISTINCT ON (r.lead_id) r.lead_id, r.category FROM qualification_results r
+                   JOIN leads l0 ON l0.id = r.lead_id WHERE l0.workspace_id = $1 ORDER BY r.lead_id, r.created_at DESC)`;
 
 export async function stats() {
+  const w = [W()];
   const [totals, byStatus, byPriority, bySource, daily, qual, drafts, byCategory, sourceQualified, topIndustry] = await Promise.all([
     q(`SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE assigned_owner_id IS NULL)::int AS unassigned,
-              COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '7 days')::int AS last7 FROM leads`),
-    q("SELECT COALESCE(status,'new') AS k, COUNT(*)::int AS n FROM leads GROUP BY 1 ORDER BY n DESC"),
-    q("SELECT COALESCE(priority,'unassessed') AS k, COUNT(*)::int AS n FROM leads GROUP BY 1"),
-    q("SELECT COALESCE(NULLIF(source,''),'unknown') AS k, COUNT(*)::int AS n FROM leads GROUP BY 1 ORDER BY n DESC"),
+              COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '7 days')::int AS last7 FROM leads WHERE workspace_id=$1`, w),
+    q("SELECT COALESCE(status,'new') AS k, COUNT(*)::int AS n FROM leads WHERE workspace_id=$1 GROUP BY 1 ORDER BY n DESC", w),
+    q("SELECT COALESCE(priority,'unassessed') AS k, COUNT(*)::int AS n FROM leads WHERE workspace_id=$1 GROUP BY 1", w),
+    q("SELECT COALESCE(NULLIF(source,''),'unknown') AS k, COUNT(*)::int AS n FROM leads WHERE workspace_id=$1 GROUP BY 1 ORDER BY n DESC", w),
     q(`SELECT to_char(d::date,'YYYY-MM-DD') AS day, COALESCE(c.n,0)::int AS n, COALESCE(qq.n,0)::int AS q
        FROM generate_series(CURRENT_DATE - 89, CURRENT_DATE, '1 day') d
-       LEFT JOIN (SELECT created_at::date AS day, COUNT(*) AS n FROM leads GROUP BY 1) c ON c.day = d::date
+       LEFT JOIN (SELECT created_at::date AS day, COUNT(*) AS n FROM leads WHERE workspace_id=$1 GROUP BY 1) c ON c.day = d::date
        LEFT JOIN (SELECT first_q::date AS day, COUNT(*) AS n
-                  FROM (SELECT lead_id, MIN(created_at) AS first_q FROM qualification_results WHERE category IN ('high_fit','medium_fit') GROUP BY lead_id) x
+                  FROM (SELECT r.lead_id, MIN(r.created_at) AS first_q FROM qualification_results r JOIN leads l1 ON l1.id = r.lead_id
+                        WHERE l1.workspace_id=$1 AND r.category IN ('high_fit','medium_fit') GROUP BY r.lead_id) x
                   GROUP BY 1) qq ON qq.day = d::date
-       ORDER BY d`),
-    q("SELECT COUNT(*)::int AS n, COALESCE(ROUND(AVG(score)),0)::int AS avg FROM qualification_results"),
-    q("SELECT COUNT(*) FILTER (WHERE draft_status='pending_review')::int AS pending, COUNT(*) FILTER (WHERE draft_status='approved')::int AS approved FROM email_drafts"),
-    q(`SELECT category AS k, COUNT(*)::int AS n FROM ${LATEST_Q} t GROUP BY 1`),
+       ORDER BY d`, w),
+    q("SELECT COUNT(*)::int AS n, COALESCE(ROUND(AVG(r.score)),0)::int AS avg FROM qualification_results r JOIN leads l ON l.id=r.lead_id WHERE l.workspace_id=$1", w),
+    q(`SELECT COUNT(*) FILTER (WHERE e.draft_status='pending_review')::int AS pending, COUNT(*) FILTER (WHERE e.draft_status='approved')::int AS approved
+       FROM email_drafts e JOIN leads l ON l.id=e.lead_id WHERE l.workspace_id=$1`, w),
+    q(`SELECT category AS k, COUNT(*)::int AS n FROM ${LATEST_Q} t GROUP BY 1`, w),
     q(`SELECT COALESCE(NULLIF(l.source,''),'unknown') AS k, COUNT(*)::int AS n
        FROM leads l JOIN ${LATEST_Q} t ON t.lead_id = l.id
-       WHERE t.category IN ('high_fit','medium_fit') GROUP BY 1 ORDER BY n DESC`),
-    q("SELECT industry AS k, COUNT(*)::int AS n FROM leads WHERE COALESCE(TRIM(industry),'') <> '' GROUP BY 1 ORDER BY n DESC LIMIT 1"),
+       WHERE l.workspace_id=$1 AND t.category IN ('high_fit','medium_fit') GROUP BY 1 ORDER BY n DESC`, w),
+    q("SELECT industry AS k, COUNT(*)::int AS n FROM leads WHERE workspace_id=$1 AND COALESCE(TRIM(industry),'') <> '' GROUP BY 1 ORDER BY n DESC LIMIT 1", w),
   ]);
   return { ...totals[0], byStatus, byPriority, bySource, daily, qualified: qual[0], drafts: drafts[0], byCategory, sourceQualified, topIndustry: topIndustry[0] || null };
 }
