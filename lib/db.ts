@@ -363,19 +363,20 @@ const LATEST_Q = `(SELECT DISTINCT ON (r.lead_id) r.lead_id, r.category FROM qua
 
 export async function stats() {
   const w = [W()];
-  const [totals, byStatus, byPriority, bySource, daily, qual, drafts, byCategory, sourceQualified, topIndustry] = await Promise.all([
+  const [totals, byStatus, byPriority, bySource, daily, qual, drafts, byCategory, sourceQualified, topIndustry, daySources] = await Promise.all([
     q(`SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE assigned_owner_id IS NULL)::int AS unassigned,
               COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '7 days')::int AS last7 FROM leads WHERE workspace_id=$1`, w),
     q(`SELECT ${EFF} AS k, COUNT(*)::int AS n FROM leads l LEFT JOIN LATERAL (${LQ}) lq ON TRUE WHERE l.workspace_id=$1 GROUP BY 1 ORDER BY n DESC`, w),
     q("SELECT COALESCE(priority,'unassessed') AS k, COUNT(*)::int AS n FROM leads WHERE workspace_id=$1 GROUP BY 1", w),
     q("SELECT COALESCE(NULLIF(source,''),'unknown') AS k, COUNT(*)::int AS n FROM leads WHERE workspace_id=$1 GROUP BY 1 ORDER BY n DESC", w),
-    q(`SELECT to_char(d::date,'YYYY-MM-DD') AS day, COALESCE(c.n,0)::int AS n, COALESCE(qq.n,0)::int AS q
+    // Per day a lead was ADDED: how many were added (n), how many are currently Qualified (q) and Won (w).
+    // "Qualified" / "Won" use the exact same status rule as the pipeline, so the numbers always agree.
+    q(`SELECT to_char(d::date,'YYYY-MM-DD') AS day, COALESCE(c.n,0)::int AS n, COALESCE(c.q,0)::int AS q, COALESCE(c.w,0)::int AS w
        FROM generate_series(CURRENT_DATE - 89, CURRENT_DATE, '1 day') d
-       LEFT JOIN (SELECT created_at::date AS day, COUNT(*) AS n FROM leads WHERE workspace_id=$1 GROUP BY 1) c ON c.day = d::date
-       LEFT JOIN (SELECT first_q::date AS day, COUNT(*) AS n
-                  FROM (SELECT r.lead_id, MIN(r.created_at) AS first_q FROM qualification_results r JOIN leads l1 ON l1.id = r.lead_id
-                        WHERE l1.workspace_id=$1 AND r.category IN ('high_fit','medium_fit') GROUP BY r.lead_id) x
-                  GROUP BY 1) qq ON qq.day = d::date
+       LEFT JOIN (SELECT l.created_at::date AS day, COUNT(*) AS n,
+                         COUNT(*) FILTER (WHERE ${EFF} = 'qualified') AS q,
+                         COUNT(*) FILTER (WHERE ${EFF} IN ('won','closed_won')) AS w
+                  FROM leads l LEFT JOIN LATERAL (${LQ}) lq ON TRUE WHERE l.workspace_id=$1 GROUP BY 1) c ON c.day = d::date
        ORDER BY d`, w),
     q("SELECT COUNT(*)::int AS n, COALESCE(ROUND(AVG(r.score)),0)::int AS avg FROM qualification_results r JOIN leads l ON l.id=r.lead_id WHERE l.workspace_id=$1", w),
     q(`SELECT COUNT(*) FILTER (WHERE e.draft_status='pending_review')::int AS pending, COUNT(*) FILTER (WHERE e.draft_status='approved')::int AS approved
@@ -385,6 +386,10 @@ export async function stats() {
        FROM leads l JOIN ${LATEST_Q} t ON t.lead_id = l.id
        WHERE l.workspace_id=$1 AND t.category IN ('high_fit','medium_fit') GROUP BY 1 ORDER BY n DESC`, w),
     q("SELECT industry AS k, COUNT(*)::int AS n FROM leads WHERE workspace_id=$1 AND COALESCE(TRIM(industry),'') <> '' GROUP BY 1 ORDER BY n DESC LIMIT 1", w),
+    q(`SELECT to_char(l.created_at::date,'YYYY-MM-DD') AS day, COALESCE(NULLIF(l.source,''),'unknown') AS k,
+              COUNT(*)::int AS n, COUNT(*) FILTER (WHERE ${EFF} = 'qualified')::int AS q
+       FROM leads l LEFT JOIN LATERAL (${LQ}) lq ON TRUE
+       WHERE l.workspace_id=$1 AND l.created_at >= CURRENT_DATE - 89 GROUP BY 1,2`, w),
   ]);
-  return { ...totals[0], byStatus, byPriority, bySource, daily, qualified: qual[0], drafts: drafts[0], byCategory, sourceQualified, topIndustry: topIndustry[0] || null };
+  return { ...totals[0], byStatus, byPriority, bySource, daily, qualified: qual[0], drafts: drafts[0], byCategory, sourceQualified, topIndustry: topIndustry[0] || null, daySources };
 }

@@ -34,11 +34,12 @@ const ALIASES: Record<string, string[]> = {
   source: ["source", "lead source", "channel", "origin"],
   budget: ["budget", "budget range"],
   timeline: ["timeline", "timeframe", "purchase timeline"],
+  consent_to_contact: ["consent", "consent to contact", "consent to be contacted", "contact consent", "opt in", "opted in"],
   description: ["description", "need", "needs", "business need", "notes", "requirement", "message", "inquiry"],
 };
 export const FIELD_LABELS: Record<string, string> = {
   contact_name: "Name", email: "Email", company: "Company", job_title: "Job title", website: "Website", industry: "Industry",
-  company_size: "Company size", country: "Country", source: "Source", budget: "Budget", timeline: "Timeline", description: "Business need",
+  company_size: "Company size", country: "Country", source: "Source", budget: "Budget", timeline: "Timeline", consent_to_contact: "Consent", description: "Business need",
 };
 
 export function mapRows(table: string[][]) {
@@ -52,6 +53,7 @@ export function mapRows(table: string[][]) {
   const rows = body.map((r) => {
     const o: any = {};
     Object.entries(map).forEach(([f, i]) => (o[f] = (r[i] || "").trim()));
+    if ("consent_to_contact" in o) o.consent_to_contact = /^(yes|y|true|1|consent|consented|opted in)$/i.test(String(o.consent_to_contact).trim());
     return o;
   });
   return { map, rows };
