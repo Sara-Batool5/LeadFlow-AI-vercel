@@ -10,6 +10,7 @@ const TONES = ["Professional and friendly", "Formal", "Warm and conversational",
 export default function LeadDrawer({ id, onClose, onChange }: { id: number | null; onClose: () => void; onChange: () => void }) {
   const [d, setD] = useState<any>(null);
   const [owners, setOwners] = useState<any[]>([]);
+  const [statuses, setStatuses] = useState<string[]>(STATUSES);
   const [busy, setBusy] = useState("");
   const [msg, setMsg] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
   const [purpose, setPurpose] = useState(PURPOSES[0]);
@@ -21,7 +22,7 @@ export default function LeadDrawer({ id, onClose, onChange }: { id: number | nul
     try { setD(await api(`/api/leads/${id}`)); } catch (e: any) { setMsg({ kind: "error", text: e.message }); }
   }, [id]);
 
-  useEffect(() => { setD(null); setMsg(null); if (id) { load(); api("/api/owners").then(setOwners).catch(() => {}); } }, [id, load]);
+  useEffect(() => { setD(null); setMsg(null); if (id) { load(); api("/api/owners").then(setOwners).catch(() => {}); api("/api/statuses").then(setStatuses).catch(() => {}); } }, [id, load]);
   useEffect(() => {
     if (!id) return;
     const k = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -65,7 +66,7 @@ export default function LeadDrawer({ id, onClose, onChange }: { id: number | nul
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
                 <div><label className="label">Status</label>
                   <select className="input" value={lead.status || "new"} onChange={(e) => act("status", () => api(`/api/leads/${id}`, { method: "PATCH", body: { status: e.target.value } }), "Status updated.")}>
-                    {[...new Set([lead.status || "new", ...STATUSES])].map((s) => <option key={s}>{s}</option>)}
+                    {[...new Set([lead.status || "new", ...statuses])].map((s) => <option key={s}>{s}</option>)}
                   </select></div>
                 <div><label className="label">Owner</label>
                   <select className="input" value={lead.assigned_owner_id || ""} onChange={(e) => act("owner", () => api(`/api/leads/${id}/assign`, { method: "POST", body: { ownerId: e.target.value || null } }), "Owner updated.")}>

@@ -1,21 +1,17 @@
 "use client";
 import { useEffect } from "react";
 
-export function Logo({ dark = false }: { dark?: boolean }) {
-  return (
-    <span className="inline-flex items-center gap-2.5 font-extrabold tracking-tight">
-      <span className="grid h-9 w-9 place-items-center rounded-xl bg-tangerine shadow-glow">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#121214" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12h6l3-7 3 14 3-7h1" /></svg>
-      </span>
-      <span className={`text-lg ${dark ? "text-chalk" : "text-onyx"}`}>LeadFlow <span className="text-tangerine">AI</span></span>
-    </span>
-  );
+// The LeadFlow AI logo (public/logo.png = full logo, public/logo-mark.png = icon only).
+export function Logo({ mark = false, className = "" }: { dark?: boolean; mark?: boolean; className?: string }) {
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img src={mark ? "/logo-mark.png" : "/logo.png"} alt="LeadFlow AI" className={`w-auto select-none ${mark ? "h-9" : "h-10"} ${className}`} draggable={false} />;
 }
 
 const TONES: Record<string, string> = {
   new: "bg-chalk-2 text-onyx", contacted: "bg-tangerine-soft text-tangerine-dark", qualified: "bg-onyx text-chalk",
   "in progress": "bg-tangerine text-onyx", closed: "bg-chalk-3 text-onyx", won: "bg-emerald-100 text-emerald-800",
   lost: "bg-rose-100 text-rose-800", disqualified: "bg-rose-100 text-rose-800",
+  closed_won: "bg-emerald-100 text-emerald-800", closed_lost: "bg-rose-100 text-rose-800", qualifying: "bg-tangerine-soft text-tangerine-dark", needs_review: "bg-tangerine-soft text-tangerine-dark", assigned: "bg-chalk-3 text-onyx",
   high: "bg-onyx text-chalk", urgent: "bg-tangerine text-onyx", medium: "bg-tangerine-soft text-tangerine-dark", low: "bg-chalk-2 text-onyx", unassessed: "bg-chalk-2 text-onyx/60",
   pending_review: "bg-tangerine-soft text-tangerine-dark", approved: "bg-emerald-100 text-emerald-800",
   completed: "bg-emerald-100 text-emerald-800", failed: "bg-rose-100 text-rose-800",

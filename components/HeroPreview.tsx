@@ -42,7 +42,7 @@ export default function HeroPreview() {
         <div className="grid gap-3 md:grid-cols-[190px_1fr]">
           {/* sidebar */}
           <aside className="hidden flex-col rounded-3xl bg-paper p-3 shadow-soft md:flex">
-            <div className="mb-4 flex items-center gap-2 px-1 text-sm font-extrabold"><span className="grid h-8 w-8 place-items-center rounded-xl bg-tangerine"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#121214" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12h6l3-7 3 14 3-7h1" /></svg></span>LeadFlow <span className="-ml-1 text-tangerine">AI</span></div>
+            <div className="mb-4 px-1"><img src="/logo.png" alt="LeadFlow AI" className="h-8 w-auto" /></div>
             {NAV.map((n, i) => <div key={n} className={`mb-1 rounded-2xl px-3 py-2 text-[11px] font-semibold ${i === 0 ? "bg-onyx text-chalk" : "text-onyx/60"}`}>{n}</div>)}
             <div className="mt-24 rounded-full bg-tangerine py-2 text-center text-[11px] font-bold">⬆ Import CSV</div>
           </aside>
