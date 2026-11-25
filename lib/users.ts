@@ -1,4 +1,4 @@
-import { q } from "./db";
+import { allowedStatuses, mapStatus, q } from "./db";
 import { hashPassword } from "./password";
 
 const g = globalThis as any;
@@ -94,6 +94,7 @@ async function seedDemo(ws: number) {
       VALUES ($1,$2,$3,TRUE,$4,$5,NOW()) RETURNING id`, [n, e, s, l, ws]))[0].id);
   }
   const all = [...LEADS, ...EXTRA_NAMES.map((n, i) => [n, EXTRA_CO[i], "Manager", EXTRA_IND[i], "20-100", "USA", EXTRA_SRC[i], "new", EXTRA_DAYS[i], null, null, null])];
+  const allowed = await allowedStatuses();
   const pendingDraftFor = new Set(["Sophia Bennett", "Aisha Karim", "Lena Fischer"]);
 
   for (let i = 0; i < all.length; i++) {
@@ -106,7 +107,7 @@ async function seedDemo(ws: number) {
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,TRUE,$17, NOW() - make_interval(days => $18, hours => $19), NOW())
        RETURNING id`,
       [`LF-DEMO-${String(i + 1).padStart(3, "0")}`, name, email, co, title, `${co.toLowerCase().replace(/[^a-z]+/g, "")}.com`, size, ind, country, src,
-       `Looking for a better way to handle inbound ${ind.toLowerCase()} inquiries and follow up faster.`, "$10k-$50k", "This quarter", status, prio,
+       `Looking for a better way to handle inbound ${ind.toLowerCase()} inquiries and follow up faster.`, "$10k-$50k", "This quarter", mapStatus(status, allowed), prio,
        own === null ? null : ownerIds[own], ws, days, (i * 5) % 20]))[0];
     await q(`INSERT INTO workflow_events (lead_id, event_type, event_status, message, details, actor, workspace_id, created_at)
              VALUES ($1,'lead_created','completed',$2,'{}'::jsonb,'Demo seed',$3, NOW() - make_interval(days => $4, hours => $5))`,

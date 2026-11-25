@@ -27,6 +27,31 @@ const normSite = (v: any) => clean(v).toLowerCase().replace(/^https?:\/\//, "").
 
 export const STATUSES = ["new", "needs_review", "assigned", "contacted", "qualified", "in progress", "closed", "won", "lost", "disqualified"];
 
+// The real database may restrict leads.status with a CHECK constraint (e.g. leads_status_check).
+// Read the allowed values from it so the app never writes a status the database rejects.
+export async function allowedStatuses(): Promise<string[]> {
+  if (g.__lfStatuses && Date.now() - g.__lfStatuses.at < 600_000) return g.__lfStatuses.list;
+  let list: string[] = [];
+  try {
+    const rows = await q(`SELECT pg_get_constraintdef(c.oid) AS def FROM pg_constraint c
+                          WHERE c.conrelid = 'leads'::regclass AND c.contype = 'c' AND pg_get_constraintdef(c.oid) ILIKE '%status%'`);
+    list = [...new Set(rows.flatMap((r) => [...String(r.def).matchAll(/'([^']+)'/g)].map((m) => m[1])))];
+  } catch {}
+  g.__lfStatuses = { at: Date.now(), list };
+  return list; // empty = no restriction found
+}
+
+const STATUS_FALLBACKS: Record<string, string[]> = {
+  won: ["closed_won", "closed"], lost: ["closed_lost", "closed", "disqualified"], closed: ["closed_won", "closed_lost"],
+  disqualified: ["closed_lost", "lost", "closed"], "in progress": ["contacted", "qualifying", "assigned"],
+  contacted: ["assigned"], qualified: ["assigned", "qualifying"], needs_review: ["new"], assigned: ["contacted", "qualified"],
+};
+export function mapStatus(s: string, allowed: string[]) {
+  if (!allowed.length || allowed.includes(s)) return s;
+  for (const alt of STATUS_FALLBACKS[s] || []) if (allowed.includes(alt)) return alt;
+  return allowed.includes("new") ? "new" : allowed[0];
+}
+
 export function normalizePriority(value: any) {
   const v = clean(value).toLowerCase();
   if (["unassessed", "low", "medium", "high", "urgent"].includes(v)) return v;
@@ -73,12 +98,17 @@ export async function assertAiAllowed() {
 // Events (audit trail)
 // ---------------------------------------------------------------------------
 export async function addEvent(leadId: number | null, type: string, message: string, details: any = {}, status = "completed", actor = "LeadFlow AI") {
-  const [r] = await q(
-    `INSERT INTO workflow_events (lead_id, event_type, event_status, message, details, actor, workspace_id, created_at)
-     VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,NOW()) RETURNING id`,
-    [leadId, type, status, message, JSON.stringify(details || {}), actor, W()]
-  );
-  return r;
+  try {
+    const [r] = await q(
+      `INSERT INTO workflow_events (lead_id, event_type, event_status, message, details, actor, workspace_id, created_at)
+       VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,NOW()) RETURNING id`,
+      [leadId, type, status, message, JSON.stringify(details || {}), actor, W()]
+    );
+    return r;
+  } catch (e) {
+    console.error("Could not write audit event:", type, e); // the audit log must never break the action itself
+    return null;
+  }
 }
 
 export async function listEvents(leadId?: number | null) {
@@ -146,14 +176,15 @@ export async function createLead(l: any, origin = "form") {
       leadRef(), clean(l.contact_name), clean(l.email), clean(l.company), clean(l.job_title), clean(l.website),
       clean(l.company_size), clean(l.industry), clean(l.country), clean(l.source) || "website_form",
       clean(l.description) || "Not provided", clean(l.budget), clean(l.timeline),
-      clean(l.status) || "new", normalizePriority(l.priority), !!l.consent_to_contact, W(),
+      mapStatus(clean(l.status) || "new", await allowedStatuses()), normalizePriority(l.priority), !!l.consent_to_contact, W(),
     ]
   );
   await addEvent(row.id, "lead_created", `Lead ${row.lead_reference} was created (${origin}).`, { origin, lead_reference: row.lead_reference });
   return row as { id: number; lead_reference: string };
 }
 
-export async function setStatus(id: number, status: string) {
+export async function setStatus(id: number, wanted: string) {
+  const status = mapStatus(wanted, await allowedStatuses());
   await q("UPDATE leads SET status=$1, updated_at=NOW() WHERE id=$2 AND workspace_id=$3", [status, id, W()]);
   await addEvent(id, "lead_status_updated", `Lead status changed to "${status}".`, { new_status: status }, "completed", ctx().name);
 }
