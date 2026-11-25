@@ -25,7 +25,7 @@ export default function Setup() {
           <div className="card p-5">
             <h2 className="mb-3 font-bold">Table row counts</h2>
             {data?.counts ? <dl className="space-y-2 text-sm">{Object.entries(data.counts).map(([k, v]) => <div key={k} className="flex justify-between rounded-xl bg-white px-4 py-2.5"><dt className="font-mono text-xs">{k}</dt><dd className="font-bold">{v as number}</dd></div>)}</dl> : <p className="text-sm text-onyx/50">Counts appear once the database connects and the LeadFlow tables exist.</p>}
-            <p className="mt-4 text-xs text-onyx/50">This app reads the tables your Streamlit version already created. It never creates or alters tables.</p>
+            <p className="mt-4 text-xs text-onyx/50">Counts are for your own workspace. The app reuses the tables your Streamlit version created; on first run it only adds an app_users table and a workspace_id column.</p>
           </div>
         </div>
       )}
