@@ -13,6 +13,7 @@ export const POST = handle(async (req) => {
 
   const seen = await existingEmails();
   let imported = 0, duplicates = 0, invalid = 0;
+  const created: { id: number; name: string; company: string }[] = [];
   const problems: string[] = [];
 
   for (let i = 0; i < rows.length; i++) {
@@ -22,9 +23,10 @@ export const POST = handle(async (req) => {
       invalid++; if (problems.length < 5) problems.push(`Row ${i + 2}: needs a name and a valid email.`); continue;
     }
     if (seen.has(email)) { duplicates++; continue; }
-    await createLead({ ...r, email, source: r.source || "csv_import" }, "csv_import");
+    const c = await createLead({ ...r, email, source: r.source || "csv_import" }, "csv_import");
+    created.push({ id: c.id, name: String(r.contact_name), company: String(r.company || "") });
     seen.add(email); imported++;
   }
   await addEvent(null, "csv_import_completed", `CSV import finished: ${imported} imported, ${duplicates} duplicates skipped, ${invalid} invalid.`, { imported, duplicates, invalid, total: rows.length });
-  return { imported, duplicates, invalid, total: rows.length, problems };
+  return { imported, duplicates, invalid, total: rows.length, problems, created };
 });
