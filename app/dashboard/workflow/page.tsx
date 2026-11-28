@@ -13,11 +13,12 @@ export default function Workflow() {
   const [leadId, setLeadId] = useState("");
   const [run, setRun] = useState<any>(null);
   const [busy, setBusy] = useState(false);
+  const [requalify, setRequalify] = useState(true);
   const [error, setError] = useState("");
 
   async function go() {
     setBusy(true); setError(""); setRun(null);
-    try { setRun(await api("/api/workflow", { method: "POST", body: { leadId: Number(leadId) } })); bump(); } catch (e: any) { setError(e.message); }
+    try { setRun(await api("/api/workflow", { method: "POST", body: { leadId: Number(leadId), requalify } })); bump(); } catch (e: any) { setError(e.message); }
     setBusy(false);
   }
 
@@ -30,11 +31,12 @@ export default function Workflow() {
         <div className="space-y-4">
           <div className="card p-6">
             <h2 className="mb-1 text-lg font-bold">Run on an existing lead</h2>
-            <p className="mb-4 text-xs text-onyx/55">Resumes from qualification and reuses a saved score if one exists.</p>
+            <p className="mb-4 text-xs text-onyx/55">Runs qualification, routing, owner assignment and the email draft.</p>
             <select className="input" value={leadId} onChange={(e) => setLeadId(e.target.value)}>
               <option value="">Select a lead…</option>
               {(leads.data || []).map((l) => <option key={l.id} value={l.id}>{l.contact_name} — {l.company || l.email}</option>)}
             </select>
+            <label className="mt-3 flex cursor-pointer items-start gap-2 text-xs text-onyx/70"><input type="checkbox" className="mt-0.5 h-4 w-4 accent-tangerine" checked={requalify} onChange={(e) => setRequalify(e.target.checked)} /><span>Re-run AI qualification (ignore any saved score)</span></label>
             <button className="btn-accent mt-4 w-full" disabled={!leadId || busy} onClick={go}>{busy ? <><Spinner /> Agents working…</> : "⚡ Run workflow"}</button>
           </div>
           {run?.decision && (
