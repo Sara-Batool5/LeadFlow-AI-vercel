@@ -356,6 +356,24 @@ export async function deleteDraft(id: number) {
 }
 
 // ---------------------------------------------------------------------------
+// Human review queue: leads the AI could not route to sales on its own
+// ---------------------------------------------------------------------------
+export const reviewQueue = () =>
+  q(`SELECT l.id, l.lead_reference, l.full_name AS contact_name, l.email, l.company, l.industry, ${EFF} AS status, l.created_at,
+            qr.score, qr.category, qr.reasoning, qr.missing_information, qr.recommended_next_action, dec.details AS decision
+     FROM leads l
+     LEFT JOIN LATERAL (${LQ}) lq ON TRUE
+     LEFT JOIN LATERAL (SELECT r.score, r.category, r.reasoning, r.missing_information, r.recommended_next_action
+                        FROM qualification_results r WHERE r.lead_id = l.id ORDER BY r.created_at DESC LIMIT 1) qr ON TRUE
+     LEFT JOIN LATERAL (SELECT e.details FROM workflow_events e WHERE e.lead_id = l.id AND e.event_type = 'ai_decision_made'
+                        ORDER BY e.created_at DESC LIMIT 1) dec ON TRUE
+     WHERE l.workspace_id = $1 AND l.assigned_owner_id IS NULL
+       AND (${EFF} = 'needs_review' OR dec.details->>'decision_category' IN ('human_review','request_information'))
+       AND ${EFF} NOT IN ('contacted','in progress','closed','won','lost','disqualified','closed_won','closed_lost')
+       AND NOT EXISTS (SELECT 1 FROM workflow_events e2 WHERE e2.lead_id = l.id AND e2.event_type IN ('human_override_approved','human_override_disqualified'))
+     ORDER BY l.created_at DESC`, [W()]);
+
+// ---------------------------------------------------------------------------
 // Dashboard statistics
 // ---------------------------------------------------------------------------
 const LATEST_Q = `(SELECT DISTINCT ON (r.lead_id) r.lead_id, r.category FROM qualification_results r

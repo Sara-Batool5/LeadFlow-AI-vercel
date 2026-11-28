@@ -47,17 +47,25 @@ export function normalizeCategory(category: any, score?: any) {
   return "needs_review";
 }
 
+const filledCount = (lead: any) =>
+  [
+    String(lead.description || "").trim().length >= 20 && !/^not provided$/i.test(String(lead.description).trim()),
+    ...[lead.budget, lead.timeline, lead.industry, lead.company, lead.company_size, lead.website, lead.country, lead.job_title].map((v) => String(v ?? "").trim() !== ""),
+  ].filter(Boolean).length;
+
+const byScore = (n: number) => (n >= 80 ? "high_fit" : n >= 50 ? "medium_fit" : "low_fit");
+
 export async function qualifyLead(lead: any) {
   const prompt = `
 You are an experienced B2B sales qualification analyst.
 
-Evaluate this lead using only the information supplied.
-Do not invent facts.
+Evaluate this lead using ONLY the information supplied. Do not invent facts.
 
 Lead information:
 Contact: ${lead.contact_name}
 Email: ${lead.email}
 Company: ${lead.company}
+Job title: ${lead.job_title}
 Industry: ${lead.industry}
 Company size: ${lead.company_size}
 Country: ${lead.country}
@@ -66,68 +74,82 @@ Budget: ${lead.budget}
 Timeline: ${lead.timeline}
 Business need: ${lead.description}
 
-Return valid JSON only, using this exact structure:
+IMPORTANT CONTEXT
+The lead form only collects the fields above. Things the form never asks for (the decision-maker's identity, current tools,
+procurement process, evaluation criteria) are EXPECTED to be unknown. Do NOT lower the score or choose needs_review because of
+them; at most mention them as optional follow-up questions.
 
+SCORING RUBRIC (total 0-100)
+- Business need: clarity and fit (0-30)
+- Budget stated (0-20)
+- Timeline / urgency (0-20)
+- Company profile: industry, size, website, country (0-20)
+- Contact relevance and seniority (0-10)
+
+CATEGORY (must be exactly one of: high_fit, medium_fit, low_fit, needs_review)
+- 80-100 = high_fit, 50-79 = medium_fit, 0-49 = low_fit
+- Use needs_review ONLY when the business need is missing or vague AND at least two of budget, timeline, industry and company are also empty.
+
+Return valid JSON only, using this exact structure:
 {
   "score": 0,
-  "category": "needs_review",
+  "category": "medium_fit",
   "reasoning": "Short explanation",
-  "missing_information": ["item 1", "item 2"],
+  "missing_information": ["optional follow-up 1"],
   "recommended_next_action": "Specific next action",
-  "human_review_required": true
-}
-
-IMPORTANT: category MUST be exactly one of: high_fit, medium_fit, low_fit, needs_review
-(lowercase, underscores, never "High" or "Needs Review").
-
-SCORING: 80-100 high_fit, 50-79 medium_fit, 0-49 low_fit.
-Use needs_review when essential information is insufficient for a reliable decision.
-Do not inflate the score. Set human_review_required to true when important information is missing or the assessment is uncertain.`;
+  "human_review_required": false
+}`;
   const out = parseJson(await chat(
-    "You are a careful B2B lead qualification assistant. Return valid JSON only. The category must be one of high_fit, medium_fit, low_fit, needs_review.",
-    prompt, 0.2, 1500));
+    "You are a careful but fair B2B lead qualification assistant. Return valid JSON only. The category must be one of high_fit, medium_fit, low_fit, needs_review.",
+    prompt, 0.2, 2000));
   const score = Math.max(0, Math.min(100, Math.round(Number(out.score) || 0)));
+  let category = normalizeCategory(out.category, out.score);
+  // Guard rails against over-cautious or over-optimistic answers, based on how complete the form actually is.
+  const filled = filledCount(lead);
+  if (category === "needs_review" && filled >= 6) category = byScore(score);
+  if (filled <= 2 && (category === "high_fit" || category === "medium_fit")) category = "needs_review";
   return {
     score,
-    category: normalizeCategory(out.category, out.score),
+    category,
     reasoning: String(out.reasoning || "").trim(),
     missing_information: Array.isArray(out.missing_information) ? out.missing_information.map(String) : [],
     recommended_next_action: String(out.recommended_next_action || "").trim(),
-    human_review_required: out.human_review_required !== false,
+    human_review_required: category === "needs_review",
   };
 }
 
 export const DECISIONS = ["prioritize_sales", "request_information", "human_review", "hold_low_fit"];
 
+// Routing POLICY (deterministic, so results are predictable): the AI explains the decision, the rules choose the route.
+export function routeFor(qual: { score: number; category: string }) {
+  if (qual.category === "high_fit") return "prioritize_sales";
+  if (qual.category === "medium_fit") return Number(qual.score) >= 65 ? "prioritize_sales" : "request_information";
+  if (qual.category === "low_fit") return "hold_low_fit";
+  return "human_review";
+}
+
 export async function decideRoute(lead: any, qual: any, memories: any[]) {
+  const route = routeFor(qual);
+  const basis = `Score ${qual.score} (${String(qual.category).replace(/_/g, " ")}) → ${route.replace(/_/g, " ")}`;
   const mem = memories.length
     ? memories.map((m) => `- ${m.category} (score ${m.score}), company size ${m.company_size || "n/a"}: ${m.recommended_next_action}`).join("\n")
     : "No similar historical outcomes available.";
-  const prompt = `
-You are the routing agent of a B2B lead desk. Choose ONE route for this lead.
+  let reasoning = String(qual.reasoning || basis), next = String(qual.recommended_next_action || "");
+  try {
+    const out = parseJson(await chat("You are a concise lead routing agent. Return valid JSON only.", `
+A routing policy has already chosen the route "${route}" for this lead (${basis}).
+Write a 1-2 sentence explanation for a sales manager and ONE specific next action that fits this route.
 
 Lead: ${lead.company} (${lead.industry || "industry unknown"}), need: ${lead.description}
-Qualification: score ${qual.score}, category ${qual.category}
-Reasoning: ${qual.reasoning}
-Missing information: ${(qual.missing_information || []).join("; ") || "none"}
+Qualification reasoning: ${qual.reasoning}
+Optional follow-ups: ${(qual.missing_information || []).join("; ") || "none"}
 Similar historical outcomes (anonymised):
 ${mem}
 
-Routes:
-- prioritize_sales: strong fit with enough information; assign an owner and prepare a follow-up
-- request_information: promising but important details are missing
-- human_review: uncertain or ambiguous; a person must decide
-- hold_low_fit: clearly poor fit
-
-Return valid JSON only:
-{"decision_category":"human_review","reasoning":"short explanation","next_action":"specific next action"}`;
-  const out = parseJson(await chat("You are a cautious lead routing agent. Return valid JSON only.", prompt, 0.1, 1200));
-  const decision = String(out.decision_category || "").trim().toLowerCase();
-  return {
-    decision_category: DECISIONS.includes(decision) ? decision : "human_review",
-    reasoning: String(out.reasoning || "").trim(),
-    next_action: String(out.next_action || "").trim(),
-  };
+Return valid JSON only: {"reasoning":"...","next_action":"..."}`, 0.2, 1200));
+    reasoning = String(out.reasoning || reasoning).trim(); next = String(out.next_action || next).trim();
+  } catch { /* the route does not depend on this explanation */ }
+  return { decision_category: route, reasoning, next_action: next, route_basis: basis };
 }
 
 export async function draftEmail(lead: any, qual: any, purpose: string, tone: string, extra: string) {

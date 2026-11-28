@@ -1,3 +1,4 @@
+import { ctx } from "./ctx";
 import { addEvent, assignAuto, createLead, findDuplicates, getLead, getQualifications, saveDraft, saveQualification, setPriority, setStatus, similarOutcomes } from "./db";
 import { decideRoute, draftEmail, modelName, qualifyLead } from "./ai";
 
@@ -19,7 +20,7 @@ export const STAGES: [string, string][] = [
  * Pass `leadData` for a new lead, or `leadId` to run/resume the pipeline for an existing lead.
  * Nothing is ever emailed — drafts wait for human approval.
  */
-export async function runWorkflow(opts: { leadData?: any; leadId?: number; allowDuplicate?: boolean }) {
+export async function runWorkflow(opts: { leadData?: any; leadId?: number; allowDuplicate?: boolean; requalify?: boolean }) {
   const stages: Stage[] = STAGES.map(([key, label]) => ({ key, label, status: "waiting", detail: "" }));
   const mark = (key: string, status: Stage["status"], detail: string) => {
     const s = stages.find((x) => x.key === key)!; s.status = status; s.detail = detail;
@@ -59,7 +60,7 @@ export async function runWorkflow(opts: { leadData?: any; leadId?: number; allow
     result.leadId = leadId;
 
     // 4. Qualification (reuse a saved result when resuming)
-    const saved = opts.leadId ? (await getQualifications(leadId!))[0] : null;
+    const saved = opts.leadId && !opts.requalify ? (await getQualifications(leadId!))[0] : null;
     let qual: any;
     if (saved) {
       qual = { ...saved, missing_information: saved.missing_information || [] };
@@ -120,4 +121,21 @@ export async function runWorkflow(opts: { leadData?: any; leadId?: number; allow
     } catch {}
     return result;
   }
+}
+
+// A person overrides the AI and sends a lead to sales: qualify, assign an owner and draft the follow-up.
+export async function humanApprove(leadId: number) {
+  const lead = await getLead(leadId);
+  if (!lead) throw new Error("Lead not found.");
+  const qual = (await getQualifications(leadId))[0] || null;
+  await setStatus(leadId, "qualified");
+  await addEvent(leadId, "human_override_approved", "A person approved this lead for sales follow-up.", { previous_status: lead.status }, "completed", ctx().name);
+  const assignment = await assignAuto(leadId);
+  let draftId: number | null = null, draftError: string | null = null;
+  try {
+    const fresh = await getLead(leadId);
+    const email = await draftEmail(fresh, qual, "Introductory follow-up after an inquiry", "Professional and friendly", qual?.recommended_next_action || "");
+    draftId = await saveDraft(leadId, fresh.email, email.subject, email.body);
+  } catch (e: any) { draftError = e.message; }
+  return { assignment, draftId, draftError };
 }
