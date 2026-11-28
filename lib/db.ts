@@ -251,7 +251,7 @@ export async function similarOutcomes(industry: string, excludeLeadId: number) {
 // ---------------------------------------------------------------------------
 export const listOwners = () =>
   q(`SELECT s.id, s.full_name, s.email, s.specialization, s.is_available, s.active_lead_limit,
-            COUNT(CASE WHEN LOWER(COALESCE(l.status,'')) NOT IN ('closed','won','lost','disqualified') THEN 1 END)::int AS active_leads
+            COUNT(CASE WHEN l.id IS NOT NULL AND LOWER(COALESCE(l.status,'')) NOT IN ('closed','won','lost','disqualified','closed_won','closed_lost') THEN 1 END)::int AS active_leads
      FROM sales_owners s LEFT JOIN leads l ON l.assigned_owner_id = s.id
      WHERE s.workspace_id = $1
      GROUP BY s.id ORDER BY s.full_name`, [W()]);
